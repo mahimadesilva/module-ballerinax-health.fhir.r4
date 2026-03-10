@@ -285,6 +285,12 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context) returns Fhi
         "where" => {
             return applyWhereFunction(targetResults, expr.params, context);
         }
+        "empty" => {
+            return applyEmptyFunction(targetResults, expr.params);
+        }
+        "exists" => {
+            return applyExistsFunction(targetResults, expr.params, context);
+        }
         _ => {
             // Unknown function
             return error FhirpathInterpreterError(string `Unknown function '${expr.name}'`,
@@ -509,6 +515,58 @@ isolated function applyWhereFunction(json[] collection, Expr[] params, json orig
     }
 
     return results;
+}
+
+# Implements the FHIRPath empty() function.
+# Returns true if the input collection is empty, false otherwise.
+# Takes no parameters.
+#
+# + collection - The collection to check
+# + params - Function parameters (expects no parameters)
+# + return - A single-element collection containing a boolean result, or an error
+isolated function applyEmptyFunction(json[] collection, Expr[] params) returns FhirpathInterpreterError|json[] {
+    // empty() requires no parameters
+    if params.length() != 0 {
+        return error FhirpathInterpreterError(
+            string `empty() requires 0 parameters, got ${params.length()}`,
+            token = {tokenType: IDENTIFIER, lexeme: "empty", literal: (), position: 0});
+    }
+
+    return [collection.length() == 0];
+}
+
+# Implements the FHIRPath exists() function.
+# Without parameters: returns true if the collection is not empty, false otherwise.
+# With a criteria parameter: returns true if any element in the collection satisfies the criteria.
+#
+# + collection - The collection to check
+# + params - Function parameters (optional criteria expression)
+# + originalContext - The original evaluation context
+# + return - A single-element collection containing a boolean result, or an error
+isolated function applyExistsFunction(json[] collection, Expr[] params, json originalContext) returns FhirpathInterpreterError|json[] {
+    // exists() accepts 0 or 1 parameter
+    if params.length() > 1 {
+        return error FhirpathInterpreterError(
+            string `exists() requires 0 or 1 parameter, got ${params.length()}`,
+            token = {tokenType: IDENTIFIER, lexeme: "exists", literal: (), position: 0});
+    }
+
+    // Without parameters: returns true if the collection is not empty
+    if params.length() == 0 {
+        return [collection.length() > 0];
+    }
+
+    // With a criteria parameter: returns true if any element satisfies the criteria
+    // This is equivalent to collection.where(criteria).exists()
+    Expr criteriaExpr = params[0];
+    foreach json item in collection {
+        json[] criteriaResult = check evaluate(criteriaExpr, item);
+        if isTruthy(criteriaResult) {
+            return [true];
+        }
+    }
+
+    return [false];
 }
 
 // ========================================
