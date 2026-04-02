@@ -737,9 +737,6 @@ isolated function calculateTimeToDecide(string? lastUpdatedTime, string claimCre
     log:printDebug(string `Normalised created time: ${normalizedCreatedTime}`);
     log:printDebug(string `Normalised updated time: ${normalizedUpdatedTime}`);
 
-    io:println(string `Normalised created time: ${normalizedCreatedTime}`);
-    io:println(string `Normalised updated time: ${normalizedUpdatedTime}`);
-
     // Convert to UTC timestamps
     time:Utc|error createdUtc = time:utcFromString(normalizedCreatedTime);
     time:Utc|error updatedUtc = time:utcFromString(normalizedUpdatedTime);
@@ -747,11 +744,8 @@ isolated function calculateTimeToDecide(string? lastUpdatedTime, string claimCre
     if createdUtc is time:Utc && updatedUtc is time:Utc {
         // Calculate difference in seconds
         decimal diffSeconds = time:utcDiffSeconds(updatedUtc, createdUtc);
-        io:println("time diff is :" + diffSeconds.toString());
-
         // Convert to human-readable format
         int formatted = formatTimeDifference(diffSeconds);
-        io:println("formatted time is: " + formatted.toString());
         return formatted;
     }
     log:printWarn("Couldn't determine the time to decide, ");
