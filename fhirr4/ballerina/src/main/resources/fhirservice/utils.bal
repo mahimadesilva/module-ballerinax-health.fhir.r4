@@ -743,7 +743,11 @@ isolated function calculateTimeToDecide(string? lastUpdatedTime, string claimCre
 
     if createdUtc is time:Utc && updatedUtc is time:Utc {
         // Calculate difference in seconds
-        decimal diffSeconds = time:utcDiffSeconds(updatedUtc, createdUtc);
+        time:Seconds diffSeconds = time:utcDiffSeconds(updatedUtc, createdUtc);
+        if diffSeconds < 0.0d {
+            log:printWarn("ClaimResponse.meta.lastUpdated is earlier than Claim.created");
+            return 0;
+        }
         // Convert to human-readable format
         int formatted = formatTimeDifference(diffSeconds);
         return formatted;
@@ -766,10 +770,10 @@ isolated function normalizeDateTimeString(string dateTimeStr) returns string {
     return dateTimeStr + "T00:00:00Z";
 }
 
-# Formats a time difference in seconds to a human-readable string.
+# # Converts a time difference in seconds to whole hours.
 #
 # + diffSeconds - Time difference in seconds
-# + return - Formatted string like "2 days, 3 hours, 15 minutes"
+# + return - + return - Time difference in whole hours
 isolated function formatTimeDifference(decimal diffSeconds) returns int {
     
     int totalSeconds = <int>diffSeconds;

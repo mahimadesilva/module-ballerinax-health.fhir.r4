@@ -143,64 +143,57 @@ isolated function constructAnalyticsDataRecord(http:RequestContext ctx, http:Req
     string requestPath  = req.rawPath;
     string httpMethod = req.method;
 
-    // Get prior auth analytics event if exist in the context
-    r4:FHIRContext fhirContext = check r4:getFHIRContext(ctx);
-    anydata event = fhirContext.getProperty(r4:PRIOR_AUTH_ANALYTICS_EVENT);
     (json|http:ClientError) & readonly requestPayload = req.getJsonPayload().cloneReadOnly();
     (json|http:ClientError) & readonly responsePayload = res.getJsonPayload().cloneReadOnly();
 
-    if event is () {
-        if requestPayload is http:ClientError {
-            // This means a payload is not present
-            requestPayload = ();
-        }
-        if responsePayload is http:ClientError {
-            // This means a payload is not present
-            responsePayload = ();
-        }
-        AnalyticsDataRecord dataRecord =  {
-            requestHeaders: requestHeaders,
-            responseHeaders: responseHeaders,
-            statusCode: statusCode,
-            requestPath: requestPath,
-            httpMethod: httpMethod,
-            requestPayload: (analytics.shouldPublishPayloads) ? check requestPayload : (),
-            responsePayload: analytics.shouldPublishPayloads ? check responsePayload : ()
-        };
-        return dataRecord;
-    } else {
-        if requestPayload is http:ClientError {
-            // This means a payload is not present
-            requestPayload = ();
-        }
-        if responsePayload is http:ClientError {
-            // This means a payload is not present
-            responsePayload = ();
-        }
+    if requestPayload is http:ClientError {
+        // This means a payload is not present
+        requestPayload = ();
+    }
+    if responsePayload is http:ClientError {
+        // This means a payload is not present
+        responsePayload = ();
+    }
 
-        map<json> mapOfEvent = check event.ensureType();
-        string? lastUpdatedTimeOfClaimResponse = check getLastUpdatedTimeFromClaimResponse(responsePayload);
-        int timeToDecide = calculateTimeToDecide(lastUpdatedTimeOfClaimResponse, mapOfEvent.get(CLAIM_CREATED_TIME).toString());
+    // Get prior auth analytics event if exist in the context
+    r4:FHIRContext|error fhirContext = r4:getFHIRContext(ctx);
+    if fhirContext is r4:FHIRContext {
+        anydata event = fhirContext.getProperty(r4:PRIOR_AUTH_ANALYTICS_EVENT);
+        if event !is () {
+            map<json> mapOfEvent = check event.ensureType();
+            string? lastUpdatedTimeOfClaimResponse = check getLastUpdatedTimeFromClaimResponse(responsePayload);
+            int timeToDecide = calculateTimeToDecide(lastUpdatedTimeOfClaimResponse, mapOfEvent.get(CLAIM_CREATED_TIME).toString());
 
-        int claimType = check mapOfEvent.get(CLAIM_TYPE);
-        r4:PriorAuthorisationAnalyticsResponseEvent paEvent = {
-            claimType: claimType,
-            claimStatus: check mapOfEvent.get(CLAIM_STATUS),
-            timeToDecide: timeToDecide,
-            isSLAViolated: isSlaViolated(claimType, timeToDecide)
-        };
-        AnalyticsDataRecord dataRecord =  {
-            requestHeaders: requestHeaders,
-            responseHeaders: responseHeaders,
-            statusCode: statusCode,
-            requestPath: requestPath,
-            httpMethod: httpMethod,
-            requestPayload: analytics.shouldPublishPayloads ? check requestPayload : (),
-            responsePayload: analytics.shouldPublishPayloads ? check responsePayload : (),
-            priorAuthData: paEvent
-        };
-        return dataRecord;
-    }  
+            int claimType = check mapOfEvent.get(CLAIM_TYPE);
+            r4:PriorAuthorisationAnalyticsResponseEvent paEvent = {
+                claimType: claimType,
+                claimStatus: check mapOfEvent.get(CLAIM_STATUS),
+                timeToDecide: timeToDecide,
+                isSLAViolated: isSlaViolated(claimType, timeToDecide)
+            };
+            AnalyticsDataRecord dataRecord =  {
+                requestHeaders: requestHeaders,
+                responseHeaders: responseHeaders,
+                statusCode: statusCode,
+                requestPath: requestPath,
+                httpMethod: httpMethod,
+                requestPayload: analytics.shouldPublishPayloads ? check requestPayload : (),
+                responsePayload: analytics.shouldPublishPayloads ? check responsePayload : (),
+                priorAuthData: paEvent
+            };
+            return dataRecord;
+        } 
+    }
+    AnalyticsDataRecord dataRecord =  {
+        requestHeaders: requestHeaders,
+        responseHeaders: responseHeaders,
+        statusCode: statusCode,
+        requestPath: requestPath,
+        httpMethod: httpMethod,
+        requestPayload: analytics.shouldPublishPayloads ? check requestPayload : (),
+        responsePayload: analytics.shouldPublishPayloads ? check responsePayload : ()
+    };
+    return dataRecord;
 }
 
 # Writes the analytics data to a file.
@@ -250,9 +243,9 @@ isolated function writeAnalyticsDataToFile(AnalyticsDataRecord analyticsDataReco
 
         AnalyticsData analyticsData = {request: request, response: response};
         if analyticsDataRecord?.priorAuthData is () {
-            analyticsData.metadata = {CMS_PATIENT_ACCESS: cmsAnalyticsData};
+            analyticsData.metadata = {"cms-patient-access": cmsAnalyticsData};
         } else {
-            analyticsData.metadata = {CMS_PATIENT_ACCESS: cmsAnalyticsData, CMS_PRIOR_AUTH: analyticsDataRecord?.priorAuthData.toJson()};
+            analyticsData.metadata = {"cms-patient-access": cmsAnalyticsData, "cms-prior-auth": analyticsDataRecord?.priorAuthData.toJson()};
         }
         
         if fhirUser is string {

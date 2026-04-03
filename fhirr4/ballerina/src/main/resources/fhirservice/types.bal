@@ -29,8 +29,6 @@ const RESOURCE_TYPE = "resourceType";
 const CLAIM_RESPONSE = "ClaimResponse";
 const META = "meta";
 const LAST_UPDATED = "lastUpdated";
-const CMS_PATIENT_ACCESS = "cms-patient-access";
-const CMS_PRIOR_AUTH = "cms-prior-auth";
 
 # Represents a FHIR service type
 public type Service distinct service object{};
