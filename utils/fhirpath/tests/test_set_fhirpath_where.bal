@@ -193,19 +193,19 @@ function testSetValueWithWhereOrOperatorWithoutResourceType() {
 @test:Config {}
 function testSetValueWithWhereNoMatch() {
     json originalPatient = samplePatient1.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "Patient.name.where(use = 'nickname').family", "NicknameFamilyName");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "Patient.name.where(use = 'nickname').family", "NicknameFamilyName");
 
     // When where clause matches nothing, it should return error as path doesn't exist
-    test:assertTrue(result is FhirpathInterpreterError, "Should return error when where clause matches nothing");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error when where clause matches nothing");
 }
 
 @test:Config {}
 function testSetValueWithWhereNoMatchWithoutResourceType() {
     json originalPatient = samplePatient1.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "name.where(use = 'nickname').family", "NicknameFamilyName");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "name.where(use = 'nickname').family", "NicknameFamilyName");
 
     // When where clause matches nothing, it should return error as path doesn't exist
-    test:assertTrue(result is FhirpathInterpreterError, "Should return error when where clause matches nothing");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error when where clause matches nothing");
 }
 
 @test:Config {}

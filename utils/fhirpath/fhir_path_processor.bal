@@ -25,10 +25,10 @@ configurable boolean inputFHIRResourceValidation = false;
 configurable boolean outputFHIRResourceValidation = false;
 
 # FhirpathResourceValidationError is the error object that is returned when an error occurs during FHIR resource validation.
-public type FhirpathResourceValidationError distinct error;
+public type FHIRPathResourceValidationError distinct error;
 
 # Union type for all FHIRPath-related errors
-public type FhirpathError FhirpathScannerError|FhirpathParserError|FhirpathInterpreterError|FhirpathResourceValidationError;
+public type FHIRPathError FHIRPathScannerError|FHIRPathParserError|FHIRPathInterpreterError|FHIRPathResourceValidationError;
 
 # Get values of a FHIR resource using a FHIRPath expression
 #
@@ -36,37 +36,37 @@ public type FhirpathError FhirpathScannerError|FhirpathParserError|FhirpathInter
 # + fhirPathExpression - fhirpath expression to get values from
 # + validateInputFHIRResource - whether to validate the input FHIR resource (default = false)
 # + return - list of results of the fhirpath expression or FhirpathError (scanner/parser/interpreter/validation errors)
-public isolated function getValuesFromFhirPath(json fhirResource, string fhirPathExpression, boolean validateInputFHIRResource = inputFHIRResourceValidation) returns json[]|FhirpathError {
+public isolated function getValuesFromFhirPath(json fhirResource, string fhirPathExpression, boolean validateInputFHIRResource = inputFHIRResourceValidation) returns json[]|FHIRPathError {
     // Validate input FHIR resource and throw error if invalid
     if validateInputFHIRResource {
         check validateFhirResource(fhirResource);
     }
 
     if fhirResource !is map<json> {
-        return error FhirpathResourceValidationError("FHIR resource must be a JSON object", fhirPath = fhirPathExpression);
+        return error FHIRPathResourceValidationError("FHIR resource must be a JSON object", fhirPath = fhirPathExpression);
     }
 
     // Scan tokens
-    FhirpathScannerError|FhirPathToken[] scanResult = scanTokens(fhirPathExpression);
-    if scanResult is FhirpathScannerError {
+    FHIRPathScannerError|FhirPathToken[] scanResult = scanTokens(fhirPathExpression);
+    if scanResult is FHIRPathScannerError {
         return scanResult;
     }
     FhirPathToken[] tokens = scanResult;
 
     // Parse expression
-    FhirpathParserError|Expr? parseResult = parse(tokens);
-    if parseResult is FhirpathParserError {
+    FHIRPathParserError|Expr? parseResult = parse(tokens);
+    if parseResult is FHIRPathParserError {
         return parseResult;
     }
     Expr? expr = parseResult;
     if expr is () {
         log:printDebug("Parsing failed", fhirPath = fhirPathExpression);
-        return error FhirpathParserError("Failed to parse FHIRPath expression", token = tokens[tokens.length() - 1]);
+        return error FHIRPathParserError("Failed to parse FHIRPath expression", token = tokens[tokens.length() - 1]);
     }
 
     // Interpret the expression
-    FhirpathInterpreterError|json[] evaluationResult = interpret(expr, fhirResource);
-    if evaluationResult is FhirpathInterpreterError {
+    FHIRPathInterpreterError|json[] evaluationResult = interpret(expr, fhirResource);
+    if evaluationResult is FHIRPathInterpreterError {
         return evaluationResult;
     }
 
@@ -82,8 +82,7 @@ public isolated function getValuesFromFhirPath(json fhirResource, string fhirPat
 # + validateOutputFHIRResource - whether to validate the output FHIR resource (default = false)
 # + return - Updated FHIR resource or FHIRPathError
 public isolated function setValuesToFhirPath(json fhirResource, string fhirPathExpression, json|ModificationFunction value,
-        boolean validateInputFHIRResource = inputFHIRResourceValidation, boolean validateOutputFHIRResource = outputFHIRResourceValidation) returns json|FhirpathError {
-
+        boolean validateInputFHIRResource = inputFHIRResourceValidation, boolean validateOutputFHIRResource = outputFHIRResourceValidation) returns json|FHIRPathError {
     json newValue = value is json ? value : ();
     ModificationFunction? modificationFunction = value is ModificationFunction ? value : ();
 
@@ -93,41 +92,41 @@ public isolated function setValuesToFhirPath(json fhirResource, string fhirPathE
     }
 
     if fhirResource !is map<json> {
-        return error FhirpathResourceValidationError("FHIR resource must be a JSON object", fhirPath = fhirPathExpression);
+        return error FHIRPathResourceValidationError("FHIR resource must be a JSON object", fhirPath = fhirPathExpression);
     }
 
     // Scan tokens
-    FhirpathScannerError|FhirPathToken[] scanResult = scanTokens(fhirPathExpression);
-    if scanResult is FhirpathScannerError {
+    FHIRPathScannerError|FhirPathToken[] scanResult = scanTokens(fhirPathExpression);
+    if scanResult is FHIRPathScannerError {
         return scanResult;
     }
     FhirPathToken[] tokens = scanResult;
 
     // Parse expression
-    FhirpathParserError|Expr? parseResult = parse(tokens);
-    if parseResult is FhirpathParserError {
+    FHIRPathParserError|Expr? parseResult = parse(tokens);
+    if parseResult is FHIRPathParserError {
         return parseResult;
     }
     Expr? expr = parseResult;
     if expr is () {
         log:printDebug("Parsing failed", fhirPath = fhirPathExpression);
-        return error FhirpathParserError("Failed to parse FHIRPath expression", token = tokens[tokens.length() - 1]);
+        return error FHIRPathParserError("Failed to parse FHIRPath expression", token = tokens[tokens.length() - 1]);
     }
 
     // newValue () is to remove the path
     boolean shouldRemove = newValue is () && modificationFunction is ();
 
     // Interpret the expression for setting values (path creation is not supported)
-    FhirpathInterpreterError|json outcome = interpretSet(expr, fhirResource, newValue, shouldRemove, modificationFunction);
-    if outcome is FhirpathInterpreterError {
+    FHIRPathInterpreterError|json outcome = interpretSet(expr, fhirResource, newValue, shouldRemove, modificationFunction);
+    if outcome is FHIRPathInterpreterError {
         return outcome;
     }
 
     // Validate FHIR resource and throw error if invalid
     if validateOutputFHIRResource {
-        FhirpathResourceValidationError? validateFhirResourceResult = validateFhirResource(outcome);
-        if validateFhirResourceResult is FhirpathResourceValidationError {
-            return error FhirpathResourceValidationError("Created resource is not FHIR compliant", fhirPath = fhirPathExpression);
+        FHIRPathResourceValidationError? validateFhirResourceResult = validateFhirResource(outcome);
+        if validateFhirResourceResult is FHIRPathResourceValidationError {
+            return error FHIRPathResourceValidationError("Created resource is not FHIR compliant", fhirPath = fhirPathExpression);
         }
     }
 
@@ -138,11 +137,11 @@ public isolated function setValuesToFhirPath(json fhirResource, string fhirPathE
 #
 # + fhirResource - The FHIR resource to validate
 # + return - True if the resource is valid, false otherwise
-isolated function validateFhirResource(json fhirResource) returns FhirpathResourceValidationError? {
+isolated function validateFhirResource(json fhirResource) returns FHIRPathResourceValidationError? {
     r4:FHIRValidationError? validateFHIRResourceJson = validator:validate(fhirResource);
 
     if validateFHIRResourceJson is r4:FHIRValidationError {
-        return error FhirpathResourceValidationError("Invalid FHIR resource", cause = validateFHIRResourceJson);
+        return error FHIRPathResourceValidationError("Invalid FHIR resource", cause = validateFHIRResourceJson);
 
     }
 }

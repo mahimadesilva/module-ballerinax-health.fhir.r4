@@ -30,7 +30,7 @@ type InterpreterError record {|
 
 # Public error type for FHIRPath interpreter runtime errors.
 # This error is raised when the interpreter encounters runtime issues.
-public type FhirpathInterpreterError distinct error<InterpreterError>;
+public type FHIRPathInterpreterError distinct error<InterpreterError>;
 
 # Interprets a FHIRPath expression against a JSON context object.
 # This is the main entry point for expression evaluation.
@@ -38,8 +38,8 @@ public type FhirpathInterpreterError distinct error<InterpreterError>;
 # + expression - The parsed FHIRPath expression (AST)
 # + context - The JSON context object (typically a FHIR resource)
 # + return - A collection of JSON results, or a FhirpathInterpreterError if evaluation fails
-isolated function interpret(Expr expression, json context) returns FhirpathInterpreterError|json[] {
-    FhirpathInterpreterError|json[] value = evaluate(expression, context);
+isolated function interpret(Expr expression, json context) returns FHIRPathInterpreterError|json[] {
+    FHIRPathInterpreterError|json[] value = evaluate(expression, context);
     return value;
 }
 
@@ -49,7 +49,7 @@ isolated function interpret(Expr expression, json context) returns FhirpathInter
 # + expr - The expression node to evaluate
 # + context - The current evaluation context (JSON value)
 # + return - A collection of JSON results, or a FhirpathInterpreterError if evaluation fails
-isolated function evaluate(Expr expr, json context) returns FhirpathInterpreterError|json[] {
+isolated function evaluate(Expr expr, json context) returns FHIRPathInterpreterError|json[] {
     match expr.kind {
         "Literal" => {
             return visitLiteralExpr(<LiteralExpr>expr, context);
@@ -93,7 +93,7 @@ isolated function visitLiteralExpr(LiteralExpr expr, json context) returns json[
 # + expr - The identifier expression node
 # + context - The current evaluation context
 # + return - A collection of values from the identified field, or empty if not found
-isolated function visitIdentifierExpr(IdentifierExpr expr, json context) returns FhirpathInterpreterError|json[] {
+isolated function visitIdentifierExpr(IdentifierExpr expr, json context) returns FHIRPathInterpreterError|json[] {
     // Identifier accesses a property from the context
     // This handles the first level access, e.g., "name" in context
     if context is () {
@@ -131,7 +131,7 @@ isolated function visitIdentifierExpr(IdentifierExpr expr, json context) returns
 # + expr - The member access expression node
 # + context - The current evaluation context
 # + return - A flattened collection of all member values, or an error
-isolated function visitMemberAccessExpr(MemberAccessExpr expr, json context) returns FhirpathInterpreterError|json[] {
+isolated function visitMemberAccessExpr(MemberAccessExpr expr, json context) returns FHIRPathInterpreterError|json[] {
     // 1. Evaluate the target expression to get a collection of results
     json[] targetResults = check evaluate(expr.target, context);
 
@@ -155,7 +155,7 @@ isolated function visitMemberAccessExpr(MemberAccessExpr expr, json context) ret
 # + item - The JSON value to access a member from
 # + memberName - The name of the member/property to access
 # + return - A collection of results (could be empty, single, or multiple values), or an error
-isolated function accessMember(json item, string memberName) returns FhirpathInterpreterError|json[] {
+isolated function accessMember(json item, string memberName) returns FHIRPathInterpreterError|json[] {
     // Handle null/nil
     if item is () {
         return [];
@@ -193,7 +193,7 @@ isolated function accessMember(json item, string memberName) returns FhirpathInt
 # + expr - The indexer expression node
 # + context - The current evaluation context
 # + return - A single-element collection with the indexed value, empty if out of bounds, or an error
-isolated function visitIndexerExpr(IndexerExpr expr, json context) returns FhirpathInterpreterError|json[] {
+isolated function visitIndexerExpr(IndexerExpr expr, json context) returns FHIRPathInterpreterError|json[] {
     // 1. Evaluate the target expression to get a collection
     json[] targetResults = check evaluate(expr.target, context);
 
@@ -239,7 +239,7 @@ isolated function visitIndexerExpr(IndexerExpr expr, json context) returns Fhirp
 # + item - The JSON value to index into
 # + index - The zero-based index to access
 # + return - A single-element collection with the indexed value, empty if out of bounds or non-array, or an error
-isolated function applyIndex(json item, int index) returns FhirpathInterpreterError|json[] {
+isolated function applyIndex(json item, int index) returns FHIRPathInterpreterError|json[] {
     // Handle null/nil
     if item is () {
         return [];
@@ -269,7 +269,7 @@ isolated function applyIndex(json item, int index) returns FhirpathInterpreterEr
 # + expr - The function expression node
 # + context - The current evaluation context
 # + return - A collection of results from the function, or an error
-isolated function visitFunctionExpr(FunctionExpr expr, json context) returns FhirpathInterpreterError|json[] {
+isolated function visitFunctionExpr(FunctionExpr expr, json context) returns FHIRPathInterpreterError|json[] {
     // 1. Evaluate the target expression if it exists (e.g., Patient in Patient.where())
     json[] targetResults;
     Expr? targetExpr = expr.target;
@@ -296,7 +296,7 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context) returns Fhi
         }
         _ => {
             // Unknown function
-            return error FhirpathInterpreterError(string `Unknown function '${expr.name}'`,
+            return error FHIRPathInterpreterError(string `Unknown function '${expr.name}'`,
             token = {tokenType: IDENTIFIER, lexeme: expr.name, literal: (), position: 0});
         }
     }
@@ -308,7 +308,7 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context) returns Fhi
 # + expr - The binary expression node
 # + context - The current evaluation context
 # + return - A collection with the boolean result of the operation, or an error
-isolated function visitBinaryExpr(BinaryExpr expr, json context) returns FhirpathInterpreterError|json[] {
+isolated function visitBinaryExpr(BinaryExpr expr, json context) returns FHIRPathInterpreterError|json[] {
     // 1. Evaluate left and right expressions
     json[] leftResults = check evaluate(expr.left, context);
     json[] rightResults = check evaluate(expr.right, context);
@@ -334,7 +334,7 @@ isolated function visitBinaryExpr(BinaryExpr expr, json context) returns Fhirpat
         }
         _ => {
             // Unknown operator
-            return error FhirpathInterpreterError(string `Unknown binary operator: ${expr.operator.lexeme}`,
+            return error FHIRPathInterpreterError(string `Unknown binary operator: ${expr.operator.lexeme}`,
                 token = expr.operator);
         }
     }
@@ -495,10 +495,10 @@ isolated function wrapInCollection(json value) returns json[] {
 # + params - Function parameters (expects exactly one condition expression)
 # + originalContext - The original evaluation context (unused in where)
 # + return - A filtered collection containing only items where the condition is truthy, or an error
-isolated function applyWhereFunction(json[] collection, Expr[] params, json originalContext) returns FhirpathInterpreterError|json[] {
+isolated function applyWhereFunction(json[] collection, Expr[] params, json originalContext) returns FHIRPathInterpreterError|json[] {
     // where() requires exactly one parameter (the condition expression)
     if params.length() != 1 {
-        return error FhirpathInterpreterError(
+        return error FHIRPathInterpreterError(
             string `where() requires exactly 1 parameter, got ${params.length()}`,
             token = {tokenType: IDENTIFIER, lexeme: "where", literal: (), position: 0});
     }
@@ -527,10 +527,10 @@ isolated function applyWhereFunction(json[] collection, Expr[] params, json orig
 # + collection - The collection to check
 # + params - Function parameters (expects no parameters)
 # + return - A single-element collection containing a boolean result, or an error
-isolated function applyEmptyFunction(json[] collection, Expr[] params) returns FhirpathInterpreterError|json[] {
+isolated function applyEmptyFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
     // empty() requires no parameters
     if params.length() != 0 {
-        return error FhirpathInterpreterError(
+        return error FHIRPathInterpreterError(
             string `empty() requires 0 parameters, got ${params.length()}`,
             token = {tokenType: IDENTIFIER, lexeme: "empty", literal: (), position: 0});
     }
@@ -546,10 +546,10 @@ isolated function applyEmptyFunction(json[] collection, Expr[] params) returns F
 # + params - Function parameters (optional criteria expression)
 # + originalContext - The original evaluation context
 # + return - A single-element collection containing a boolean result, or an error
-isolated function applyExistsFunction(json[] collection, Expr[] params, json originalContext) returns FhirpathInterpreterError|json[] {
+isolated function applyExistsFunction(json[] collection, Expr[] params, json originalContext) returns FHIRPathInterpreterError|json[] {
     // exists() accepts 0 or 1 parameter
     if params.length() > 1 {
-        return error FhirpathInterpreterError(
+        return error FHIRPathInterpreterError(
             string `exists() requires 0 or 1 parameter, got ${params.length()}`,
             token = {tokenType: IDENTIFIER, lexeme: "exists", literal: (), position: 0});
     }
@@ -580,10 +580,10 @@ isolated function applyExistsFunction(json[] collection, Expr[] params, json ori
 # + collection - The collection to get the first element from
 # + params - Function parameters (expects no parameters)
 # + return - A single-element collection with the first item, empty if collection is empty, or an error
-isolated function applyFirstFunction(json[] collection, Expr[] params) returns FhirpathInterpreterError|json[] {
+isolated function applyFirstFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
     // first() requires no parameters
     if params.length() != 0 {
-        return error FhirpathInterpreterError(
+        return error FHIRPathInterpreterError(
             string `first() requires 0 parameters, got ${params.length()}`,
             token = {tokenType: IDENTIFIER, lexeme: "first", literal: (), position: 0});
     }
@@ -610,14 +610,14 @@ isolated function applyFirstFunction(json[] collection, Expr[] params) returns F
 # + shouldRemove - Whether to remove the value instead of setting it
 # + modificationFunction - Optional function to transform the existing value
 # + return - The modified JSON context, or a FhirpathInterpreterError if evaluation fails
-isolated function interpretSet(Expr expression, json context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FhirpathInterpreterError|json {
+isolated function interpretSet(Expr expression, json context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|json {
     if context !is map<json> {
-        return error FhirpathInterpreterError("Context must be a JSON object for set operations",
+        return error FHIRPathInterpreterError("Context must be a JSON object for set operations",
             token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
     }
 
     map<json> contextClone = context.clone();
-    FhirpathInterpreterError|map<json> result = evaluateSet(expression, contextClone, newValue, shouldRemove, modificationFunction);
+    FHIRPathInterpreterError|map<json> result = evaluateSet(expression, contextClone, newValue, shouldRemove, modificationFunction);
     return result;
 }
 
@@ -630,7 +630,7 @@ isolated function interpretSet(Expr expression, json context, json newValue, boo
 # + shouldRemove - Whether to remove the value instead of setting it
 # + modificationFunction - Optional function to transform the existing value
 # + return - The modified JSON object, or a FhirpathInterpreterError if evaluation fails
-isolated function evaluateSet(Expr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FhirpathInterpreterError|map<json> {
+isolated function evaluateSet(Expr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
     match expr.kind {
         "Identifier" => {
             return visitIdentifierExprSet(<IdentifierExpr>expr, context, newValue, shouldRemove, modificationFunction);
@@ -642,7 +642,7 @@ isolated function evaluateSet(Expr expr, map<json> context, json newValue, boole
             return visitIndexerExprSet(<IndexerExpr>expr, context, newValue, shouldRemove, modificationFunction);
         }
         _ => {
-            return error FhirpathInterpreterError("Unsupported expression type for set operation",
+            return error FHIRPathInterpreterError("Unsupported expression type for set operation",
                 token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
         }
     }
@@ -657,7 +657,7 @@ isolated function evaluateSet(Expr expr, map<json> context, json newValue, boole
 # + shouldRemove - Whether to remove the value instead of setting it
 # + modificationFunction - Optional function to transform the existing value
 # + return - The modified JSON object, or an error
-isolated function visitIdentifierExprSet(IdentifierExpr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FhirpathInterpreterError|map<json> {
+isolated function visitIdentifierExprSet(IdentifierExpr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
     string fieldName = expr.name;
 
     // Check if identifier matches the resource type
@@ -680,13 +680,13 @@ isolated function visitIdentifierExprSet(IdentifierExpr expr, map<json> context,
 
     // Handle setting field - error if field doesn't exist
     if !context.hasKey(fieldName) {
-        return error FhirpathInterpreterError(string `Path '${fieldName}' does not exist in the resource`,
+        return error FHIRPathInterpreterError(string `Path '${fieldName}' does not exist in the resource`,
             token = {tokenType: IDENTIFIER, lexeme: fieldName, literal: (), position: 0});
     }
 
     json|error modifiedValue = getModifiedValueInternal(context[fieldName], modificationFunction, newValue);
     if modifiedValue is error {
-        return error FhirpathInterpreterError(modifiedValue.message(),
+        return error FHIRPathInterpreterError(modifiedValue.message(),
             token = {tokenType: IDENTIFIER, lexeme: fieldName, literal: (), position: 0});
     }
     context[fieldName] = modifiedValue;
@@ -703,7 +703,7 @@ isolated function visitIdentifierExprSet(IdentifierExpr expr, map<json> context,
 # + shouldRemove - Whether to remove the value instead of setting it
 # + modificationFunction - Optional function to transform the existing value
 # + return - The modified JSON object, or an error
-isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FhirpathInterpreterError|map<json> {
+isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
     // First, navigate to the target
     Expr targetExpr = expr.target;
     string memberName = expr.member;
@@ -722,13 +722,13 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
                 } else {
                     // Check if member exists - error if it doesn't
                     if !targetItem.hasKey(memberName) {
-                        return error FhirpathInterpreterError(string `Path '${memberName}' does not exist in the resource`,
+                        return error FHIRPathInterpreterError(string `Path '${memberName}' does not exist in the resource`,
                             token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
                     }
                     json currentValue = targetItem[memberName];
                     json|error modifiedValue = getModifiedValueInternal(currentValue, modificationFunction, newValue);
                     if modifiedValue is error {
-                        return error FhirpathInterpreterError(modifiedValue.message(),
+                        return error FHIRPathInterpreterError(modifiedValue.message(),
                             token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
                     }
                     targetItem[memberName] = modifiedValue;
@@ -744,13 +744,13 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
                         } else {
                             // Check if member exists - error if it doesn't
                             if !element.hasKey(memberName) {
-                                return error FhirpathInterpreterError(string `Path '${memberName}' does not exist in the resource`,
+                                return error FHIRPathInterpreterError(string `Path '${memberName}' does not exist in the resource`,
                                     token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
                             }
                             json currentValue = element[memberName];
                             json|error modifiedValue = getModifiedValueInternal(currentValue, modificationFunction, newValue);
                             if modifiedValue is error {
-                                return error FhirpathInterpreterError(modifiedValue.message(),
+                                return error FHIRPathInterpreterError(modifiedValue.message(),
                                     token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
                             }
                             element[memberName] = modifiedValue;
@@ -766,7 +766,7 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
     if shouldRemove {
         return context;
     }
-    return error FhirpathInterpreterError(string `Path '${memberName}' does not exist in the resource`,
+    return error FHIRPathInterpreterError(string `Path '${memberName}' does not exist in the resource`,
         token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
 }
 
@@ -779,11 +779,11 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
 # + shouldRemove - Whether to remove the value instead of setting it
 # + modificationFunction - Optional function to transform the existing value
 # + return - The modified JSON object, or an error
-isolated function visitIndexerExprSet(IndexerExpr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FhirpathInterpreterError|map<json> {
+isolated function visitIndexerExprSet(IndexerExpr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
     // Get the index value
     json[] indexResults = check evaluate(expr.index, context);
     if indexResults.length() != 1 {
-        return error FhirpathInterpreterError("Index must be a single value",
+        return error FHIRPathInterpreterError("Index must be a single value",
             token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
     }
 
@@ -793,12 +793,12 @@ isolated function visitIndexerExprSet(IndexerExpr expr, map<json> context, json 
         index = indexValue;
     } else if indexValue is float {
         if indexValue % 1.0 != 0.0 {
-            return error FhirpathInterpreterError("Index must be a whole number",
+            return error FHIRPathInterpreterError("Index must be a whole number",
                 token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
         }
         index = <int>indexValue;
     } else {
-        return error FhirpathInterpreterError("Index must be numeric",
+        return error FHIRPathInterpreterError("Index must be numeric",
             token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
     }
 
@@ -827,7 +827,7 @@ isolated function visitIndexerExprSet(IndexerExpr expr, map<json> context, json 
 # + shouldRemove - Whether to remove instead of set
 # + modificationFunction - Optional modification function
 # + return - The modified context or error
-isolated function setValueAtIndexedIdentifier(IdentifierExpr expr, int index, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FhirpathInterpreterError|map<json> {
+isolated function setValueAtIndexedIdentifier(IdentifierExpr expr, int index, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
     string fieldName = expr.name;
 
     // Check if field exists
@@ -835,7 +835,7 @@ isolated function setValueAtIndexedIdentifier(IdentifierExpr expr, int index, ma
         if shouldRemove {
             return context;
         }
-        return error FhirpathInterpreterError(string `Path '${fieldName}' does not exist in the resource`,
+        return error FHIRPathInterpreterError(string `Path '${fieldName}' does not exist in the resource`,
             token = {tokenType: IDENTIFIER, lexeme: fieldName, literal: (), position: 0});
     }
 
@@ -844,7 +844,7 @@ isolated function setValueAtIndexedIdentifier(IdentifierExpr expr, int index, ma
         if shouldRemove {
             return context;
         }
-        return error FhirpathInterpreterError(string `Path '${fieldName}' is not an array`,
+        return error FHIRPathInterpreterError(string `Path '${fieldName}' is not an array`,
             token = {tokenType: IDENTIFIER, lexeme: fieldName, literal: (), position: 0});
     }
 
@@ -866,14 +866,14 @@ isolated function setValueAtIndexedIdentifier(IdentifierExpr expr, int index, ma
 
     // Check if index exists
     if index >= arr.length() {
-        return error FhirpathInterpreterError(string `Index ${index} is out of bounds for array '${fieldName}' with length ${arr.length()}`,
+        return error FHIRPathInterpreterError(string `Index ${index} is out of bounds for array '${fieldName}' with length ${arr.length()}`,
             token = {tokenType: IDENTIFIER, lexeme: fieldName, literal: (), position: 0});
     }
 
     // Set the value at index
     json|error modifiedValue = getModifiedValueInternal(arr[index], modificationFunction, newValue);
     if modifiedValue is error {
-        return error FhirpathInterpreterError(modifiedValue.message(),
+        return error FHIRPathInterpreterError(modifiedValue.message(),
             token = {tokenType: IDENTIFIER, lexeme: fieldName, literal: (), position: 0});
     }
     arr[index] = modifiedValue;
@@ -890,7 +890,7 @@ isolated function setValueAtIndexedIdentifier(IdentifierExpr expr, int index, ma
 # + shouldRemove - Whether to remove instead of set
 # + modificationFunction - Optional modification function
 # + return - The modified context or error
-isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FhirpathInterpreterError|map<json> {
+isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
     // Evaluate target to get the parent object(s)
     json[] targetResults = check evaluate(expr.target, context);
     string memberName = expr.member;
@@ -899,7 +899,7 @@ isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index
         if shouldRemove {
             return context;
         }
-        return error FhirpathInterpreterError(string `Path to '${memberName}' does not exist in the resource`,
+        return error FHIRPathInterpreterError(string `Path to '${memberName}' does not exist in the resource`,
             token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
     }
 
@@ -911,7 +911,7 @@ isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index
                 if shouldRemove {
                     continue;
                 }
-                return error FhirpathInterpreterError(string `Path '${memberName}' does not exist`,
+                return error FHIRPathInterpreterError(string `Path '${memberName}' does not exist`,
                     token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
             }
 
@@ -920,7 +920,7 @@ isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index
                 if shouldRemove {
                     continue;
                 }
-                return error FhirpathInterpreterError(string `Path '${memberName}' is not an array`,
+                return error FHIRPathInterpreterError(string `Path '${memberName}' is not an array`,
                     token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
             }
 
@@ -941,14 +941,14 @@ isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index
 
             // Check if index exists
             if index >= arr.length() {
-                return error FhirpathInterpreterError(string `Index ${index} is out of bounds for array '${memberName}' with length ${arr.length()}`,
+                return error FHIRPathInterpreterError(string `Index ${index} is out of bounds for array '${memberName}' with length ${arr.length()}`,
                     token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
             }
 
             // Set the value
             json|error modifiedValue = getModifiedValueInternal(arr[index], modificationFunction, newValue);
             if modifiedValue is error {
-                return error FhirpathInterpreterError(modifiedValue.message(),
+                return error FHIRPathInterpreterError(modifiedValue.message(),
                     token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
             }
             arr[index] = modifiedValue;
@@ -967,7 +967,7 @@ isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index
 # + shouldRemove - Whether to remove instead of set
 # + modificationFunction - Optional modification function
 # + return - The modified context or error
-isolated function setValueAtNestedIndexer(IndexerExpr expr, int outerIndex, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FhirpathInterpreterError|map<json> {
+isolated function setValueAtNestedIndexer(IndexerExpr expr, int outerIndex, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
     // Evaluate the inner indexer to get the array
     json[] innerResults = check evaluate(expr, context);
 
@@ -975,7 +975,7 @@ isolated function setValueAtNestedIndexer(IndexerExpr expr, int outerIndex, map<
         if shouldRemove {
             return context;
         }
-        return error FhirpathInterpreterError("Path does not exist in the resource",
+        return error FHIRPathInterpreterError("Path does not exist in the resource",
             token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
     }
 
@@ -1004,13 +1004,13 @@ isolated function setValueAtNestedIndexer(IndexerExpr expr, int outerIndex, map<
             }
 
             if outerIndex < 0 || outerIndex >= arr.length() {
-                return error FhirpathInterpreterError(string `Index ${outerIndex} is out of bounds for array with length ${arr.length()}`,
+                return error FHIRPathInterpreterError(string `Index ${outerIndex} is out of bounds for array with length ${arr.length()}`,
                     token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
             }
 
             json|error modifiedValue = getModifiedValueInternal(arr[outerIndex], modificationFunction, newValue);
             if modifiedValue is error {
-                return error FhirpathInterpreterError(modifiedValue.message(),
+                return error FHIRPathInterpreterError(modifiedValue.message(),
                     token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
             }
             arr[outerIndex] = modifiedValue;

@@ -257,9 +257,9 @@ function testBulkUpdateNestedArrayElementsWithoutResourceType() {
 @test:Config {}
 function testSkipNonExistentPathWithPathCreationDisabled() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "Patient.nonExistentField", "value");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "Patient.nonExistentField", "value");
 
-    test:assertTrue(result is FhirpathInterpreterError, "Should return error for non-existent path");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error for non-existent path");
     if result is error {
         test:assertTrue(result.message().includes("does not exist"), "Error message should indicate path doesn't exist");
     }
@@ -268,9 +268,9 @@ function testSkipNonExistentPathWithPathCreationDisabled() {
 @test:Config {}
 function testSkipNonExistentPathWithPathCreationDisabledWithoutResourceType() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "nonExistentField", "value");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "nonExistentField", "value");
 
-    test:assertTrue(result is FhirpathInterpreterError, "Should return error for non-existent path");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error for non-existent path");
     if result is error {
         test:assertTrue(result.message().includes("does not exist"), "Error message should indicate path doesn't exist");
     }
@@ -279,9 +279,9 @@ function testSkipNonExistentPathWithPathCreationDisabledWithoutResourceType() {
 @test:Config {}
 function testSkipNonExistentNestedPath() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "Patient.address[0].nonExistent.field", "value");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "Patient.address[0].nonExistent.field", "value");
 
-    test:assertTrue(result is FhirpathInterpreterError, "Should return error for non-existent nested path");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error for non-existent nested path");
     if result is error {
         test:assertTrue(result.message().includes("does not exist"), "Error message should indicate path doesn't exist");
     }
@@ -290,9 +290,9 @@ function testSkipNonExistentNestedPath() {
 @test:Config {}
 function testSkipNonExistentNestedPathWithoutResourceType() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "address[0].nonExistent.field", "value");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "address[0].nonExistent.field", "value");
 
-    test:assertTrue(result is FhirpathInterpreterError, "Should return error for non-existent nested path");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error for non-existent nested path");
     if result is error {
         test:assertTrue(result.message().includes("does not exist"), "Error message should indicate path doesn't exist");
     }
@@ -301,9 +301,9 @@ function testSkipNonExistentNestedPathWithoutResourceType() {
 @test:Config {}
 function testSkipNonExistentArrayIndex() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "Patient.address[5].city", "value");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "Patient.address[5].city", "value");
 
-    test:assertTrue(result is FhirpathInterpreterError, "Should return error for out-of-bounds array index");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error for out-of-bounds array index");
     if result is error {
         test:assertTrue(result.message().includes("does not exist"), "Error message should indicate path doesn't exist");
     }
@@ -312,9 +312,9 @@ function testSkipNonExistentArrayIndex() {
 @test:Config {}
 function testSkipNonExistentArrayIndexWithoutResourceType() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "address[5].city", "value");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "address[5].city", "value");
 
-    test:assertTrue(result is FhirpathInterpreterError, "Should return error for out-of-bounds array index");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error for out-of-bounds array index");
     if result is error {
         test:assertTrue(result.message().includes("does not exist"), "Error message should indicate path doesn't exist");
     }
@@ -323,9 +323,9 @@ function testSkipNonExistentArrayIndexWithoutResourceType() {
 @test:Config {}
 function testInvalidEmptyFhirPathExpression() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "", "value");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "", "value");
 
-    test:assertTrue(result is FhirpathParserError, "Should return error for empty expression");
+    test:assertTrue(result is FHIRPathParserError, "Should return error for empty expression");
     if result is error {
         test:assertTrue(result.message().includes("Expect expression."), "Should have appropriate error message");
     }
@@ -334,9 +334,9 @@ function testInvalidEmptyFhirPathExpression() {
 @test:Config {}
 function testInvalidEmptyFhirPathExpressionWithoutResourceType() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "", "value");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "", "value");
 
-    test:assertTrue(result is FhirpathParserError, "Should return error for empty expression");
+    test:assertTrue(result is FHIRPathParserError, "Should return error for empty expression");
     if result is error {
         test:assertTrue(result.message().includes("Expect expression."), "Should have appropriate error message");
     }
@@ -345,9 +345,9 @@ function testInvalidEmptyFhirPathExpressionWithoutResourceType() {
 @test:Config {}
 function testInvalidArrayIndex() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "Patient.name[abc]", "value");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "Patient.name[abc]", "value");
 
-    test:assertTrue(result is FhirpathInterpreterError, "Should return error for invalid array index");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error for invalid array index");
     if result is error {
         test:assertTrue(result.message().includes("Index must be a single value"), "Should have appropriate error message");
     }
@@ -356,9 +356,9 @@ function testInvalidArrayIndex() {
 @test:Config {}
 function testInvalidArrayIndexWithoutResourceType() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "name[abc]", "value");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "name[abc]", "value");
 
-    test:assertTrue(result is FhirpathInterpreterError, "Should return error for invalid array index");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error for invalid array index");
     if result is error {
         test:assertTrue(result.message().includes("Index must be a single value"), "Should have appropriate error message");
     }
@@ -367,8 +367,8 @@ function testInvalidArrayIndexWithoutResourceType() {
 @test:Config {}
 function testMalformedArrayAccess() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "Patient.name[0.family", "value");
-    test:assertTrue(result is FhirpathParserError, "Should return error for malformed array access");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "Patient.name[0.family", "value");
+    test:assertTrue(result is FHIRPathParserError, "Should return error for malformed array access");
     if result is error {
         test:assertTrue(result.message().includes("Expect ']' after index expression."), "Should have appropriate error message");
     }
@@ -377,8 +377,8 @@ function testMalformedArrayAccess() {
 @test:Config {}
 function testMalformedArrayAccessWithoutResourceType() {
     json originalPatient = samplePatient3.clone();
-    json|FhirpathError result = setValuesToFhirPath(originalPatient, "name[0.family", "value");
-    test:assertTrue(result is FhirpathParserError, "Should return error for malformed array access");
+    json|FHIRPathError result = setValuesToFhirPath(originalPatient, "name[0.family", "value");
+    test:assertTrue(result is FHIRPathParserError, "Should return error for malformed array access");
     if result is error {
         test:assertTrue(result.message().includes("Expect ']' after index expression."), "Should have appropriate error message");
     }

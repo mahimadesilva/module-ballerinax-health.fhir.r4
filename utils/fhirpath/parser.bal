@@ -42,7 +42,7 @@ type ParseError record {|
 
 # Public error type for FHIRPath parser errors.
 # This error is raised when the parser encounters invalid syntax.
-public type FhirpathParserError distinct error<ParseError>;
+public type FHIRPathParserError distinct error<ParseError>;
 
 # Type alias for parse result: an optional expression and updated parser state.
 type ParseResult [Expr?, ParserState];
@@ -78,7 +78,7 @@ isolated function createParserState(FhirPathToken[] tokens) returns ParserState 
 #
 # + tokens - The list of tokens produced by the scanner
 # + return - An expression AST on success, or a FhirpathParserError if parsing fails
-public isolated function parse(FhirPathToken[] tokens) returns FhirpathParserError|Expr? {
+public isolated function parse(FhirPathToken[] tokens) returns FHIRPathParserError|Expr? {
     ParserState state = createParserState(tokens);
     ParseResult result = check Expression(state);
     Expr? expr = result[0];
@@ -88,7 +88,7 @@ public isolated function parse(FhirPathToken[] tokens) returns FhirpathParserErr
     }
     if !isparseAtEnd(endState) {
         FhirPathToken token = peekparse(endState);
-        return error FhirpathParserError("Unexpected tokens after expression.", token = token);
+        return error FHIRPathParserError("Unexpected tokens after expression.", token = token);
     }
     return expr;
 }
@@ -105,7 +105,7 @@ public isolated function parse(FhirPathToken[] tokens) returns FhirpathParserErr
 #
 # + state - The current parser state
 # + return - A parse result with the expression and updated state, or an error
-isolated function Expression(ParserState state) returns FhirpathParserError|ParseResult {
+isolated function Expression(ParserState state) returns FHIRPathParserError|ParseResult {
     return parseOrExpression(state);
 }
 
@@ -114,7 +114,7 @@ isolated function Expression(ParserState state) returns FhirpathParserError|Pars
 #
 # + state - The current parser state
 # + return - A parse result with the binary expression and updated state, or an error
-isolated function parseOrExpression(ParserState state) returns FhirpathParserError|[Expr?, ParserState] {
+isolated function parseOrExpression(ParserState state) returns FHIRPathParserError|[Expr?, ParserState] {
     ParseResult result = check parseAndExpression(state);
     Expr? expr = result[0];
     ParserState newState = result[1];
@@ -147,7 +147,7 @@ isolated function parseOrExpression(ParserState state) returns FhirpathParserErr
 #
 # + state - The current parser state
 # + return - A parse result with the binary expression and updated state, or an error
-isolated function parseAndExpression(ParserState state) returns FhirpathParserError|ParseResult {
+isolated function parseAndExpression(ParserState state) returns FHIRPathParserError|ParseResult {
     ParseResult result = check parseEqualityExpression(state);
     Expr? expr = result[0];
     ParserState newState = result[1];
@@ -180,7 +180,7 @@ isolated function parseAndExpression(ParserState state) returns FhirpathParserEr
 #
 # + state - The current parser state
 # + return - A parse result with the binary expression and updated state, or an error
-isolated function parseEqualityExpression(ParserState state) returns FhirpathParserError|ParseResult {
+isolated function parseEqualityExpression(ParserState state) returns FHIRPathParserError|ParseResult {
     ParseResult result = check parsePostfixExpression(state);
     Expr? expr = result[0];
     ParserState newState = result[1];
@@ -214,7 +214,7 @@ isolated function parseEqualityExpression(ParserState state) returns FhirpathPar
 #
 # + state - The current parser state
 # + return - A parse result with the postfix expression and updated state, or an error
-isolated function parsePostfixExpression(ParserState state) returns FhirpathParserError|ParseResult {
+isolated function parsePostfixExpression(ParserState state) returns FHIRPathParserError|ParseResult {
     ParseResult result = check parsePrimary(state);
     Expr? expr = result[0];
     ParserState newState = result[1];
@@ -285,7 +285,7 @@ isolated function parsePostfixExpression(ParserState state) returns FhirpathPars
 #
 # + state - The current parser state
 # + return - A parse result with the identifier or function expression, or an error
-isolated function parseInvocation(ParserState state) returns FhirpathParserError|ParseResult {
+isolated function parseInvocation(ParserState state) returns FHIRPathParserError|ParseResult {
     // Try to parse as identifier or function
     [boolean, ParserState] idMatch = matchToken(state, IDENTIFIER, DELIMITED_IDENTIFIER);
     if idMatch[0] {
@@ -320,7 +320,7 @@ isolated function parseInvocation(ParserState state) returns FhirpathParserError
     }
 
     FhirPathToken token = peekparse(state);
-    return error FhirpathParserError("Expect identifier or function.",
+    return error FHIRPathParserError("Expect identifier or function.",
         token = token);
 }
 
@@ -329,7 +329,7 @@ isolated function parseInvocation(ParserState state) returns FhirpathParserError
 #
 # + state - The current parser state
 # + return - A parse result with the parameter list and updated state, or an error
-isolated function parseParamList(ParserState state) returns FhirpathParserError|ParseParamListResult {
+isolated function parseParamList(ParserState state) returns FHIRPathParserError|ParseParamListResult {
     Expr[] params = [];
     ParserState newState = state;
 
@@ -371,7 +371,7 @@ isolated function parseParamList(ParserState state) returns FhirpathParserError|
 #
 # + state - The current parser state
 # + return - A parse result with the primary expression and updated state, or an error
-isolated function parsePrimary(ParserState state) returns FhirpathParserError|ParseResult {
+isolated function parsePrimary(ParserState state) returns FHIRPathParserError|ParseResult {
     // Literals
     [boolean, ParserState] matchResult = matchToken(state, FALSE);
     if matchResult[0] {
@@ -428,7 +428,7 @@ isolated function parsePrimary(ParserState state) returns FhirpathParserError|Pa
     }
 
     FhirPathToken token = peekparse(state);
-    return error FhirpathParserError("Expect expression.",
+    return error FHIRPathParserError("Expect expression.",
         token = token);
 }
 
@@ -458,13 +458,13 @@ isolated function matchToken(ParserState state, TokenType... types) returns [boo
 # + tokenType - The expected token type
 # + message - Error message to display if the token doesn't match
 # + return - A consume result with success flag and updated state, or a parser error
-isolated function consumeparse(ParserState state, TokenType tokenType, string message) returns FhirpathParserError|ConsumeResult {
+isolated function consumeparse(ParserState state, TokenType tokenType, string message) returns FHIRPathParserError|ConsumeResult {
     if checkToken(state, tokenType) {
         return [true, advanceparse(state)];
     }
 
     FhirPathToken token = peekparse(state);
-    return error FhirpathParserError(message,
+    return error FHIRPathParserError(message,
         token = token);
 }
 
