@@ -17,7 +17,7 @@
 import ballerina/test;
 
 @test:Config {}
-public function testWhereFunction() returns error? {
+function testWhereFunction() returns error? {
     // Test where() - filter names by use='official'
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.name.where(use = 'official').family"), ["Chalmers"], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.name.where(use = 'official').use"), ["official"], msg = "Failed!");
@@ -45,7 +45,7 @@ public function testWhereFunction() returns error? {
 }
 
 @test:Config {}
-public function testWhereFunctionWithBooleanOperators() returns error? {
+function testWhereFunctionWithBooleanOperators() returns error? {
     // Test where() with 'and' operator - both conditions match
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.address.where(use = 'home' and city = 'PleasantVille').state"), ["Vic"], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.address.where(city = 'Melbourne' and use = 'work').postalCode"), ["3000"], msg = "Failed!");
