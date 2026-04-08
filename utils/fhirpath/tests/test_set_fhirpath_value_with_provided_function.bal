@@ -1,4 +1,4 @@
-// Copyright (c) 2025, WSO2 LLC. (http://www.wso2.com).
+// Copyright (c) 2025 - 2026, WSO2 LLC. (http://www.wso2.com).
 
 // WSO2 LLC. licenses this file to you under the Apache License,
 // Version 2.0 (the "License"); you may not use this file except
@@ -263,12 +263,11 @@ function testModificationFunctionOnMissingField() {
         "id": "test-patient"
     };
 
-    // Should not apply modification function if field doesn't exist and path creation is disabled
+    // Should return error when trying to modify non-existent field
     json|FHIRPathError result = setValuesToFhirPath(testResource, "Patient.gender", toUpperCaseFunction);
-    test:assertTrue(result is json, "Should handle missing field gracefully");
-    if result is json {
-        map<json> resultMap = <map<json>>result;
-        test:assertFalse(resultMap.hasKey("gender"), "Field should not be created when path creation is disabled");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error for non-existent path");
+    if result is error {
+        test:assertTrue(result.message().includes("does not exist"), "Error message should indicate path doesn't exist");
     }
 }
 
@@ -410,12 +409,10 @@ function testModificationFunctionWithEmptyArray() {
         "name": []
     };
 
+    // With empty array, the path evaluates to empty collection, resulting in error
     json|FHIRPathError result = setValuesToFhirPath(testResource, "Patient.name.family", toUpperCaseFunction);
-    test:assertTrue(result is json, "Should handle empty array gracefully");
-    if result is json {
-        map<json> resultMap = <map<json>>result;
-        json nameValue = resultMap["name"];
-        json[] nameArray = <json[]>nameValue;
-        test:assertEquals(nameArray.length(), 0, "Array should remain empty");
+    test:assertTrue(result is FHIRPathInterpreterError, "Should return error when path evaluates to empty");
+    if result is error {
+        test:assertTrue(result.message().includes("does not exist"), "Error message should indicate path doesn't exist");
     }
 }
