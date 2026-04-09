@@ -28,9 +28,9 @@ type InterpreterError record {|
     FhirPathToken token;
 |};
 
-# Public error type for FHIRPath interpreter runtime errors.
+# Error type for FHIRPath interpreter runtime errors.
 # This error is raised when the interpreter encounters runtime issues.
-public type FHIRPathInterpreterError distinct error<InterpreterError>;
+type FHIRPathInterpreterError distinct error<InterpreterError>;
 
 # Interprets a FHIRPath expression against a JSON context object.
 # This is the main entry point for expression evaluation.

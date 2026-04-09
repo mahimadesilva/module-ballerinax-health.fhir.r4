@@ -17,7 +17,7 @@
 import ballerina/test;
 
 @test:Config {}
-public function testFirstFunction() returns error? {
+function testFirstFunction() returns error? {
     // first() on a multi-element collection should return the first element
     json[]|error result = getValuesFromFhirPath(samplePatient1, "Patient.name.first()");
     if result is json[] {
@@ -57,7 +57,7 @@ public function testFirstFunction() returns error? {
 }
 
 @test:Config {}
-public function testFirstFunctionWithoutResourceType() returns error? {
+function testFirstFunctionWithoutResourceType() returns error? {
     // first() without resource type prefix
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "name.given.first()"), ["Peter"], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "address.city.first()"), ["PleasantVille"], msg = "Failed!");
@@ -66,7 +66,7 @@ public function testFirstFunctionWithoutResourceType() returns error? {
 }
 
 @test:Config {}
-public function testFirstFunctionChainedWithWhere() returns error? {
+function testFirstFunctionChainedWithWhere() returns error? {
     // first() chained after where() with matches
     json[]|error result = getValuesFromFhirPath(samplePatient1, "Patient.name.where(use = 'official').first()");
     if result is json[] {
@@ -84,7 +84,7 @@ public function testFirstFunctionChainedWithWhere() returns error? {
 }
 
 @test:Config {}
-public function testFirstFunctionChainedWithExists() returns error? {
+function testFirstFunctionChainedWithExists() returns error? {
     // first() chained with exists() - should return true when first element exists
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.name.first().exists()"), [true], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.address.first().exists()"), [true], msg = "Failed!");

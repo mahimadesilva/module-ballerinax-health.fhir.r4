@@ -25,9 +25,9 @@ configurable boolean inputFHIRResourceValidation = false;
 configurable boolean outputFHIRResourceValidation = false;
 
 # FhirpathResourceValidationError is the error object that is returned when an error occurs during FHIR resource validation.
-public type FHIRPathResourceValidationError distinct error;
+type FHIRPathResourceValidationError distinct error;
 
-# Union type for all FHIRPath-related errors
+# FHIRPathError is the error object that is returned when an error occurs during the evaluation of a FHIRPath expression.
 public type FHIRPathError FHIRPathScannerError|FHIRPathParserError|FHIRPathInterpreterError|FHIRPathResourceValidationError;
 
 # Get values of a FHIR resource using a FHIRPath expression

@@ -17,7 +17,7 @@
 import ballerina/test;
 
 @test:Config {}
-public function testEmptyFunction() returns error? {
+function testEmptyFunction() returns error? {
     // empty() on non-empty collections should return false
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.name.empty()"), [false], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.address.empty()"), [false], msg = "Failed!");
@@ -41,7 +41,7 @@ public function testEmptyFunction() returns error? {
 }
 
 @test:Config {}
-public function testEmptyFunctionWithoutResourceType() returns error? {
+function testEmptyFunctionWithoutResourceType() returns error? {
     // empty() without resource type prefix
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "name.empty()"), [false], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "address.empty()"), [false], msg = "Failed!");
@@ -51,7 +51,7 @@ public function testEmptyFunctionWithoutResourceType() returns error? {
 }
 
 @test:Config {}
-public function testExistsFunction() returns error? {
+function testExistsFunction() returns error? {
     // exists() on non-empty collections should return true
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.name.exists()"), [true], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.address.exists()"), [true], msg = "Failed!");
@@ -74,7 +74,7 @@ public function testExistsFunction() returns error? {
 }
 
 @test:Config {}
-public function testExistsFunctionWithCriteria() returns error? {
+function testExistsFunctionWithCriteria() returns error? {
     // exists() with criteria that matches should return true
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.name.exists(use = 'official')"), [true], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.name.exists(use = 'usual')"), [true], msg = "Failed!");
@@ -90,7 +90,7 @@ public function testExistsFunctionWithCriteria() returns error? {
 }
 
 @test:Config {}
-public function testExistsFunctionWithoutResourceType() returns error? {
+function testExistsFunctionWithoutResourceType() returns error? {
     // exists() without resource type prefix
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "name.exists()"), [true], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "address.exists()"), [true], msg = "Failed!");
@@ -101,7 +101,7 @@ public function testExistsFunctionWithoutResourceType() returns error? {
 }
 
 @test:Config {}
-public function testEmptyAndExistsAreOpposites() returns error? {
+function testEmptyAndExistsAreOpposites() returns error? {
     // Verify that empty() and exists() return opposite results for the same paths
     json[]|error emptyResult = getValuesFromFhirPath(samplePatient1, "Patient.name.empty()");
     json[]|error existsResult = getValuesFromFhirPath(samplePatient1, "Patient.name.exists()");

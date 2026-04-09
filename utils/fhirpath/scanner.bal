@@ -25,9 +25,9 @@ type ScannerError record {|
     int position;
 |};
 
-# Public error type for FHIRPath scanner errors.
+# Error type for FHIRPath scanner errors.
 # This error is raised when the scanner encounters invalid syntax.
-public type FHIRPathScannerError distinct error<ScannerError>;
+type FHIRPathScannerError distinct error<ScannerError>;
 
 // ========================================
 // STATE MANAGEMENT

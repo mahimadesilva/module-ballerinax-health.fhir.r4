@@ -40,9 +40,9 @@ type ParseError record {|
     FhirPathToken token;
 |};
 
-# Public error type for FHIRPath parser errors.
+# Error type for FHIRPath parser errors.
 # This error is raised when the parser encounters invalid syntax.
-public type FHIRPathParserError distinct error<ParseError>;
+type FHIRPathParserError distinct error<ParseError>;
 
 # Type alias for parse result: an optional expression and updated parser state.
 type ParseResult [Expr?, ParserState];
@@ -78,7 +78,7 @@ isolated function createParserState(FhirPathToken[] tokens) returns ParserState 
 #
 # + tokens - The list of tokens produced by the scanner
 # + return - An expression AST on success, or a FhirpathParserError if parsing fails
-public isolated function parse(FhirPathToken[] tokens) returns FHIRPathParserError|Expr? {
+isolated function parse(FhirPathToken[] tokens) returns FHIRPathParserError|Expr? {
     ParserState state = createParserState(tokens);
     ParseResult result = check Expression(state);
     Expr? expr = result[0];

@@ -17,7 +17,7 @@
 import ballerina/test;
 
 @test:Config {}
-public function testEvaluateFhirPath() returns error? {
+function testEvaluateFhirPath() returns error? {
     // Unit Test for HappyPaths.
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.id"), ["1"], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "Patient.address[0].line[0]"), ["534 Erewhon St"], msg = "Failed!");
@@ -58,7 +58,7 @@ public function testEvaluateFhirPath() returns error? {
 }
 
 @test:Config {}
-public function testEvaluateFhirPathWithoutResourceType() returns error? {
+function testEvaluateFhirPathWithoutResourceType() returns error? {
     // Unit Test for HappyPaths without resource type prefix.
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "id"), ["1"], msg = "Failed!");
     test:assertEquals(getValuesFromFhirPath(samplePatient1, "address[0].line[0]"), ["534 Erewhon St"], msg = "Failed!");
