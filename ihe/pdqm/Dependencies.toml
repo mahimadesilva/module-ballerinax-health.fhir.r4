@@ -44,7 +44,7 @@ modules = [
 [[package]]
 org = "ballerina"
 name = "crypto"
-version = "2.10.1"
+version = "2.11.0"
 dependencies = [
 	{org = "ballerina", name = "jballerina.java"},
 	{org = "ballerina", name = "time"}
@@ -62,7 +62,7 @@ dependencies = [
 [[package]]
 org = "ballerina"
 name = "file"
-version = "1.12.0"
+version = "1.13.0"
 dependencies = [
 	{org = "ballerina", name = "io"},
 	{org = "ballerina", name = "jballerina.java"},
@@ -73,7 +73,7 @@ dependencies = [
 [[package]]
 org = "ballerina"
 name = "http"
-version = "2.14.9"
+version = "2.14.10"
 dependencies = [
 	{org = "ballerina", name = "auth"},
 	{org = "ballerina", name = "cache"},
@@ -311,7 +311,7 @@ dependencies = [
 [[package]]
 org = "ballerinax"
 name = "health.fhir.r4"
-version = "6.2.3"
+version = "6.3.2"
 dependencies = [
 	{org = "ballerina", name = "constraint"},
 	{org = "ballerina", name = "http"},
@@ -331,21 +331,8 @@ modules = [
 
 [[package]]
 org = "ballerinax"
-name = "health.fhir.r4.international401"
-version = "4.0.0"
-dependencies = [
-	{org = "ballerina", name = "constraint"},
-	{org = "ballerina", name = "log"},
-	{org = "ballerinax", name = "health.fhir.r4"}
-]
-modules = [
-	{org = "ballerinax", packageName = "health.fhir.r4.international401", moduleName = "health.fhir.r4.international401"}
-]
-
-[[package]]
-org = "healthcare_samples"
-name = "ihe_pdqm"
-version = "1.0.0"
+name = "health.fhir.r4.ihe.pdqm"
+version = "3.2.0"
 dependencies = [
 	{org = "ballerina", name = "constraint"},
 	{org = "ballerina", name = "log"},
@@ -353,6 +340,19 @@ dependencies = [
 	{org = "ballerinax", name = "health.fhir.r4.international401"}
 ]
 modules = [
-	{org = "healthcare_samples", packageName = "ihe_pdqm", moduleName = "ihe_pdqm"}
+	{org = "ballerinax", packageName = "health.fhir.r4.ihe.pdqm", moduleName = "health.fhir.r4.ihe.pdqm"}
+]
+
+[[package]]
+org = "ballerinax"
+name = "health.fhir.r4.international401"
+version = "4.0.3"
+dependencies = [
+	{org = "ballerina", name = "constraint"},
+	{org = "ballerina", name = "log"},
+	{org = "ballerinax", name = "health.fhir.r4"}
+]
+modules = [
+	{org = "ballerinax", packageName = "health.fhir.r4.international401", moduleName = "health.fhir.r4.international401"}
 ]
 
