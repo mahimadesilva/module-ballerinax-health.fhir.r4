@@ -21,6 +21,7 @@ import ballerina/file;
 import ballerina/io;
 import ballerina/jwt;
 import ballerina/lang.regexp;
+import ballerina/url;
 
 isolated http:Client? conditionalInvokationClient = ();
 
@@ -115,7 +116,10 @@ isolated function handleConditionalHeader(string conditionalUrl, string resource
         }
 
         if clientRef is () {
-            return;
+            return r4:createInternalFHIRError(
+                "Conditional invocation client is not initialized",
+                r4:ERROR, r4:PROCESSING
+            );
         }
 
         // Build headers and make HTTP call outside lock (mutable map not allowed inside lock)
@@ -126,9 +130,11 @@ isolated function handleConditionalHeader(string conditionalUrl, string resource
         http:Response response = check clientRef->get(resourcePath + searchParams, reqHeaders);
 
         if response.statusCode == http:STATUS_NOT_FOUND {
-            // allow to create a new resource if no entries are found
-            log:printDebug("No existing resource found for the given search criteria, allowing creation of a new resource");
-            return;
+            return r4:createFHIRError(
+                "Search endpoint returned 404 Not Found during conditional operation; verify the resource server endpoint is configured correctly",
+                r4:ERROR, r4:PROCESSING,
+                httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR
+            );
         }
 
         // Extract the entity and decode to r4:Bundle
@@ -216,14 +222,12 @@ isolated function HandleSearchForConditionalInteractions(string resourcePath, st
     int statusCode = response.statusCode;
 
     if statusCode == http:STATUS_NOT_FOUND {
-        // No resources found - return empty bundle
-        r4:Bundle emptyBundle = {
-            resourceType: "Bundle",
-            'type: r4:BUNDLE_TYPE_SEARCHSET,
-            total: 0,
-            entry: []
-        };
-        return emptyBundle;
+        log:printError(string `Search endpoint returned 404 Not Found for: ${searchUrl}`);
+        return r4:createFHIRError(
+            "Search endpoint returned 404 Not Found; verify the resource server endpoint is configured correctly",
+            r4:ERROR, r4:PROCESSING,
+            httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR
+        );
     }
 
     if statusCode != http:STATUS_OK {
@@ -293,9 +297,11 @@ isolated function constructSearchQueryString(map<r4:RequestSearchParameter[]> pa
 
     foreach r4:RequestSearchParameter[] paramArray in params {
         foreach r4:RequestSearchParameter param in paramArray {
-            // Format: name=value
-            string paramString = param.name + "=" + param.value;
-            queryParts.push(paramString);
+            string|error encodedName = url:encode(param.name, "UTF-8");
+            string|error encodedValue = url:encode(param.value, "UTF-8");
+            string nameStr = encodedName is string ? encodedName : param.name;
+            string valueStr = encodedValue is string ? encodedValue : param.value;
+            queryParts.push(nameStr + "=" + valueStr);
         }
     }
 
