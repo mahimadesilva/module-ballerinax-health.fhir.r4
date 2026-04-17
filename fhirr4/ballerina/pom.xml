@@ -23,7 +23,7 @@
     <parent>
         <artifactId>fhirr4</artifactId>
         <groupId>io.ballerinax</groupId>
-        <version>3.0.6</version>
+        <version>3.0.8</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <modelVersion>4.0.0</modelVersion>
@@ -49,21 +49,9 @@
                         </goals>
                         <configuration>
                             <resources>
-                                <!-- Text source files: apply Maven property substitution -->
                                 <resource>
                                     <directory>src/main/resources</directory>
                                     <filtering>true</filtering>
-                                    <excludes>
-                                        <exclude>**/target/**</exclude>
-                                    </excludes>
-                                </resource>
-                                <!-- Binary build artifacts: copy as-is, no filtering -->
-                                <resource>
-                                    <directory>src/main/resources</directory>
-                                    <filtering>false</filtering>
-                                    <includes>
-                                        <include>**/target/**</include>
-                                    </includes>
                                 </resource>
                             </resources>
                             <outputDirectory>${project.build.outputDirectory}</outputDirectory>
@@ -126,10 +114,8 @@
                             <goal>exec</goal>
                         </goals>
                         <configuration>
-                            <executable>cmd</executable>
+                            <executable>bal</executable>
                             <arguments>
-                                <argument>/c</argument>
-                                <argument>bal</argument>
                                 <argument>pack</argument>
                                 <!-- Todo: Remove this after the issue https://github.com/wso2-enterprise/wso2-integration-internal/issues/4657 is fixed. -->
                                 <argument>${project.build.outputDirectory}/fhirservice</argument>
@@ -160,10 +146,8 @@
                                     <goal>exec</goal>
                                 </goals>
                                 <configuration>
-                                    <executable>cmd</executable>
+                                    <executable>bal</executable>
                                     <arguments>
-                                        <argument>/c</argument>
-                                        <argument>bal</argument>
                                         <argument>test</argument>
                                         <!--                                        <argument>&#45;&#45;test-report</argument>-->
                                         <!--                                        <argument>&#45;&#45;code-coverage</argument>-->
@@ -194,10 +178,8 @@
                                     <goal>exec</goal>
                                 </goals>
                                 <configuration>
-                                    <executable>cmd</executable>
+                                    <executable>bal</executable>
                                     <arguments>
-                                        <argument>/c</argument>
-                                        <argument>bal</argument>
                                         <argument>test</argument>
                                         <argument>--graalvm</argument>
                                         <argument>--graalvm-build-options="-J-Xmx7G"</argument>

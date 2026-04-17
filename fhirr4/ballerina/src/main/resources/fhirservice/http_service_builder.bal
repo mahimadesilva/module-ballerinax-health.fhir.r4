@@ -335,10 +335,16 @@ isolated function getHttpService(Holder h, r4:ResourceAPIConfig apiConfig, strin
                         // The fallback may have found a type-level method (no path param).
                         boolean hasPathParam = isHavingPathParam(resourceMethod);
                         any|error executeResourceResult;
-                        if hasPathParam {
+                        if hasPathParam && id != "" {
                             executeResourceResult = executeWithIDAndPayload(id, payload, fhirContext, fhirService, resourceMethod);
-                        } else {
+                        } else if !hasPathParam {
                             executeResourceResult = executeWithPayload(payload, fhirContext, fhirService, resourceMethod);
+                        } else {
+                            return r4:createFHIRError(
+                                "Conditional update cannot target an ID-based PUT when no resource ID is resolved",
+                                r4:CODE_SEVERITY_ERROR, r4:TRANSIENT,
+                                httpStatusCode = http:STATUS_BAD_REQUEST
+                            );
                         }
                         if (executeResourceResult is error) {
                             fhirContext.setInErrorState(true);
@@ -357,7 +363,14 @@ isolated function getHttpService(Holder h, r4:ResourceAPIConfig apiConfig, strin
                         return r4:createFHIRError(string `Path not found: ${req.extraPathInfo}`, r4:CODE_SEVERITY_ERROR, r4:TRANSIENT, httpStatusCode = http:STATUS_NOT_FOUND);
                     }
                     resourceMethod = updateMethodResult;
-                    
+
+                    // Verify the resolved method expects a path parameter (i.e., an ID).
+                    // PUT /[type] without an ID or search params is not a valid FHIR operation.
+                    if !isHavingPathParam(resourceMethod) {
+                        return r4:createFHIRError("Resource ID is required for PUT operation",
+                            r4:CODE_SEVERITY_ERROR, r4:TRANSIENT, httpStatusCode = http:STATUS_BAD_REQUEST);
+                    }
+
                     id = paths[paths.length() - 1];
                     r4:FHIRError? processUpdate = self.preprocessor.processUpdate(fhirResource, id, payload, req, ctx);
                     if processUpdate is r4:FHIRError {
