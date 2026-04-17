@@ -496,9 +496,9 @@ public isolated class FHIRPreprocessor {
         string? resourceId = idInPayload is string ? idInPayload : ();
         boolean hasIdInPayload = resourceId is string;
 
-        // Extract search parameters from query string
+        // Extract search parameters from query string (no defaults - only caller-supplied params for conditional matching)
         map<r4:RequestSearchParameter[]> requestSearchParameters =
-            check self.processSearchParameters(fhirResourceType, httpRequest);
+            check self.processSearchParameters(fhirResourceType, httpRequest, false);
 
         // ===== NEW CONDITIONAL UPDATE LOGIC =====
 
@@ -536,8 +536,8 @@ public isolated class FHIRPreprocessor {
         }
 
         // Determine match count from bundle
-        int matchCount = searchResult.total ?: 0;
         r4:BundleEntry[]? entries = searchResult.entry;
+        int matchCount = searchResult.total ?: (entries is r4:BundleEntry[] ? entries.length() : 0);
 
         log:printDebug(string `Conditional update search found ${matchCount} matches`);
 
@@ -791,9 +791,9 @@ public isolated class FHIRPreprocessor {
             return r4:createInternalFHIRError("API resource type and API config does not match", r4:ERROR, r4:PROCESSING, diagnostic = diagMsg);
         }
 
-        // Extract search parameters from query string
+        // Extract search parameters from query string (no defaults - only caller-supplied params for conditional matching)
         map<r4:RequestSearchParameter[]> requestSearchParameters =
-            check self.processSearchParameters(fhirResourceType, httpRequest);
+            check self.processSearchParameters(fhirResourceType, httpRequest, false);
 
         // Execute search to find matching resources
         string resourcePath = "";
@@ -829,8 +829,8 @@ public isolated class FHIRPreprocessor {
         }
 
         // Determine match count from bundle
-        int matchCount = searchResult.total ?: 0;
         r4:BundleEntry[]? entries = searchResult.entry;
+        int matchCount = searchResult.total ?: (entries is r4:BundleEntry[] ? entries.length() : 0);
 
         log:printDebug(string `Conditional delete search found ${matchCount} matches`);
 
@@ -1159,7 +1159,8 @@ public isolated class FHIRPreprocessor {
         return ipsBundle;
     }
 
-    isolated function processSearchParameters(string fhirResourceType, http:Request request)
+    isolated function processSearchParameters(string fhirResourceType, http:Request request,
+                                              boolean injectDefaults = true)
                                                                 returns map<r4:RequestSearchParameter[]>|r4:FHIRError {
         map<r4:RequestSearchParameter[]> processedSearchParams = {};
         r4:SearchParamCollection searchParamDefinitions = r4:fhirRegistry.getResourceSearchParameters(fhirResourceType);
@@ -1248,21 +1249,23 @@ public isolated class FHIRPreprocessor {
             }
         }
 
-        // process rest of the common search parameters and populate default values
-        foreach r4:CommonSearchParameterDefinition sParam in r4:COMMON_SEARCH_PARAMETERS {
-            if !processedSearchParams.hasKey(sParam.name) {
-                r4:RequestSearchParameter? defaultParam = check getCommonSearchParamDefault(sParam, self.apiConfig);
-                if defaultParam != () {
-                    processedSearchParams[sParam.name] = [defaultParam];
+        if injectDefaults {
+            // process rest of the common search parameters and populate default values
+            foreach r4:CommonSearchParameterDefinition sParam in r4:COMMON_SEARCH_PARAMETERS {
+                if !processedSearchParams.hasKey(sParam.name) {
+                    r4:RequestSearchParameter? defaultParam = check getCommonSearchParamDefault(sParam, self.apiConfig);
+                    if defaultParam != () {
+                        processedSearchParams[sParam.name] = [defaultParam];
+                    }
                 }
             }
-        }
-        // process rest of the search control parameters and populate default values
-        foreach r4:CommonSearchParameterDefinition sParam in r4:CONTROL_SEARCH_PARAMETERS {
-            if !processedSearchParams.hasKey(sParam.name) {
-                r4:RequestSearchParameter? defaultParam = check getCommonSearchParamDefault(sParam, self.apiConfig);
-                if defaultParam != () {
-                    processedSearchParams[sParam.name] = [defaultParam];
+            // process rest of the search control parameters and populate default values
+            foreach r4:CommonSearchParameterDefinition sParam in r4:CONTROL_SEARCH_PARAMETERS {
+                if !processedSearchParams.hasKey(sParam.name) {
+                    r4:RequestSearchParameter? defaultParam = check getCommonSearchParamDefault(sParam, self.apiConfig);
+                    if defaultParam != () {
+                        processedSearchParams[sParam.name] = [defaultParam];
+                    }
                 }
             }
         }
