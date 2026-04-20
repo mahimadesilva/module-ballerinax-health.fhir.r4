@@ -26,8 +26,7 @@ import ballerina/log;
 # + return - Authorization response (always denied by default)
 public isolated function defaultAuthorizePractitioner(string patientId, string practitionerId) returns r4:AuthzResponse {
     log:printWarn("[Authorize Practitioner] No custom practitioner authorization function configured. Denying access. " +
-    "Provide an 'authorizePractitioner' function in AuthzConfig to enable practitioner authorization.",
-    patient_id = patientId, practitioner_id = practitionerId);
+    "Provide an 'authorizePractitioner' function in AuthzConfig to enable practitioner authorization.");
     return {isAuthorized: false};
 }
 
@@ -39,12 +38,11 @@ public isolated function defaultAuthorizePractitioner(string patientId, string p
 public isolated function defaultAuthorizePrivilegedUser(r4:AuthzRequest & readonly authzRequest) returns r4:AuthzResponse {
     string? privilegedClaimUrl = authzRequest.privilegedClaimUrl;
     if (privilegedClaimUrl is string) {
-        anydata|error authenticatedPriviledgedClaim = getClaimValue(privilegedClaimUrl, authzRequest);
-        if (authenticatedPriviledgedClaim is string && "true".equalsIgnoreCaseAscii(authenticatedPriviledgedClaim)) {
+        anydata|error authenticatedPrivilegedClaim = getClaimValue(privilegedClaimUrl, authzRequest);
+        if (authenticatedPrivilegedClaim is string && "true".equalsIgnoreCaseAscii(authenticatedPrivilegedClaim)) {
             return {isAuthorized: true, scope: r4:PRIVILEGED};
         }
-        log:printDebug("[Authorize Privileged User] Privileged claim is not set to 'true'.", claim_url = privilegedClaimUrl,
-        claim_value = authenticatedPriviledgedClaim is anydata ? authenticatedPriviledgedClaim : "not found");
+        log:printDebug("[Authorize Privileged User] Privileged claim is not set to 'true'.", claim_url = privilegedClaimUrl);
     } else {
         log:printDebug("[Authorize Privileged User] No privilegedClaimUrl set in request.");
     }
@@ -60,7 +58,7 @@ public isolated function defaultAuthorizePrivilegedUser(r4:AuthzRequest & readon
 public isolated function getClaimValue(string claimName, r4:AuthzRequest payload) returns anydata|error {
     r4:JWT? & readonly jwt = payload.fhirSecurity.jwt;
     if (jwt is r4:JWT && jwt.payload.hasKey(claimName)) {
-        log:printDebug("[Get Claim Value] Claim found.", claim_name = claimName, claim_value = jwt.payload[claimName]);
+        log:printDebug("[Get Claim Value] Claim found.", claim_name = claimName);
         return jwt.payload[claimName];
     }
     log:printDebug("[Get Claim Value] Claim not found.", claim_name = claimName);

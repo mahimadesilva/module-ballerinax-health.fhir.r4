@@ -17,7 +17,7 @@ If no `patientId` is provided in the request (bulk data access), only privileged
 ### From Local Repository
 
 ```bash
-cd authz-fhirr4
+cd authz
 bal pack
 bal push --repository=local
 ```

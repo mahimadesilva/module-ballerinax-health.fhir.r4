@@ -50,16 +50,19 @@ public isolated function authorize(r4:AuthzRequest & readonly authzRequest, Auth
         return {isAuthorized: false};
     }
 
-    log:printInfo("[Authorize] Single patient data access request.", patient_id = pid);
+    log:printInfo("[Authorize] Single patient data access request.");
+    log:printDebug("[Authorize] Single patient data access request.", patient_id = pid);
 
     // Check 1: Patient
     anydata|error authenticatedPatientId = getClaimValue(config.patientIdClaim, authzRequest);
     if (authenticatedPatientId is string) {
         if (pid == authenticatedPatientId) {
-            log:printInfo("[Authorize] Authorized as patient.", patient_id = pid);
+            log:printInfo("[Authorize] Authorized as patient.");
+            log:printDebug("[Authorize] Authorized as patient.", patient_id = pid);
             return {isAuthorized: true, scope: r4:PATIENT};
         }
-        log:printInfo("[Authorize] Patient claim present but does not match requested patient.",
+        log:printInfo("[Authorize] Patient claim present but does not match requested patient.");
+        log:printDebug("[Authorize] Patient claim present but does not match requested patient.",
         requested_patient_id = pid, authenticated_patient_id = authenticatedPatientId);
         // A patient can also be a practitioner or privileged user, so continue checking
     }
@@ -68,19 +71,21 @@ public isolated function authorize(r4:AuthzRequest & readonly authzRequest, Auth
     anydata|error authenticatedPractitionerId = getClaimValue(config.practitionerIdClaim, authzRequest);
     if (authenticatedPractitionerId is string) {
         if (authorizePractitionerFn(pid, authenticatedPractitionerId).isAuthorized) {
-            log:printInfo("[Authorize] Authorized as practitioner.", practitioner_id = authenticatedPractitionerId, patient_id = pid);
+            log:printInfo("[Authorize] Authorized as practitioner.");
+            log:printDebug("[Authorize] Authorized as practitioner.", practitioner_id = authenticatedPractitionerId, patient_id = pid);
             return {isAuthorized: true, scope: r4:PRACTITIONER};
         }
-        log:printInfo("[Authorize] Practitioner claim present but not authorized for patient.",
+        log:printInfo("[Authorize] Practitioner claim present but not authorized for patient.");
+        log:printDebug("[Authorize] Practitioner claim present but not authorized for patient.",
         practitioner_id = authenticatedPractitionerId, patient_id = pid);
     }
 
     // Check 3: Privileged user
     r4:AuthzResponse response = authorizePrivilegedUserFn(authzRequest);
     if (response.isAuthorized) {
-        log:printInfo("[Authorize] Authorized as privileged user.", patient_id = pid);
+        log:printInfo("[Authorize] Authorized as privileged user.");
     } else {
-        log:printWarn("[Authorize] Access denied. No matching role found.", patient_id = pid);
+        log:printWarn("[Authorize] Access denied. No matching role found.");
     }
     return response;
 }
