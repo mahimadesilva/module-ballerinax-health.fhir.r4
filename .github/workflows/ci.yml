@@ -9,6 +9,7 @@ on:
 env:
   R4_PATTERN: '*/*'
   UTILS_PATTERN: 'utils/*/*'
+  IHE_PATTERN: 'ihe/*/*'
   AU_PATTERN: 'au/*/*'
   DK_PATTERN: 'dk/*/*'
   BE_PATTERN: 'belgiumfederal/*/*'
@@ -57,6 +58,8 @@ jobs:
           declare -A UNIQUE_PATHS_MAP
           for file in "${CHANGED_FILES_ARRAY[@]}"; do
             if [[ $file == $UTILS_PATTERN ]]; then
+              EXTRACTED_PATH=$(echo "$file" | cut -d '/' -f 1-2)
+            elif [[ $file == $IHE_PATTERN ]]; then
               EXTRACTED_PATH=$(echo "$file" | cut -d '/' -f 1-2)
             elif [[ $file == $AU_PATTERN ]]; then
               EXTRACTED_PATH=$(echo "$file" | cut -d '/' -f 1-2)
