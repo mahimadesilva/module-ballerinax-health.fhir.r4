@@ -59,7 +59,7 @@ dependencies = [
 [[package]]
 org = "ballerina"
 name = "file"
-version = "1.12.0"
+version = "1.13.0"
 dependencies = [
 	{org = "ballerina", name = "io"},
 	{org = "ballerina", name = "jballerina.java"},
@@ -350,7 +350,7 @@ modules = [
 ]
 
 [[package]]
-org = "wso2"
+org = "ballerinax"
 name = "health.fhir.r4.authz"
 version = "1.0.0"
 dependencies = [
@@ -359,6 +359,6 @@ dependencies = [
 	{org = "ballerinax", name = "health.fhir.r4"}
 ]
 modules = [
-	{org = "wso2", packageName = "health.fhir.r4.authz", moduleName = "health.fhir.r4.authz"}
+	{org = "ballerinax", packageName = "health.fhir.r4.authz", moduleName = "health.fhir.r4.authz"}
 ]
 

@@ -12,32 +12,12 @@ The library uses a cascading authorization check:
 
 If no `patientId` is provided in the request (bulk data access), only privileged user authorization is checked.
 
-## Installation
-
-### From Local Repository
-
-```bash
-cd authz
-bal pack
-bal push --repository=local
-```
-
-Then add the dependency in your project's `Ballerina.toml`:
-
-```toml
-[[dependency]]
-org = "wso2"
-name = "health.fhir.r4.authz"
-version = "1.0.0"
-repository = "local"
-```
-
 ## Usage
 
 ### Basic Usage (Default Configuration)
 
 ```ballerina
-import wso2/health.fhir.r4.authz;
+import ballerinax/health.fhir.r4.authz;
 import ballerinax/health.fhir.r4;
 
 r4:AuthzResponse response = authz:authorize(authzRequest);
@@ -52,7 +32,7 @@ With default configuration:
 ### Custom Configuration
 
 ```ballerina
-import wso2/health.fhir.r4.authz;
+import ballerinax/health.fhir.r4.authz;
 import ballerinax/health.fhir.r4;
 
 authz:AuthzConfig config = {
