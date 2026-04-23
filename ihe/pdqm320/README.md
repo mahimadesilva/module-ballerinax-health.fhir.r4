@@ -14,7 +14,7 @@ IHE Patient Demographics Query for Mobile (PDQm) FHIR R4 data model package. It 
 Ballerina package containing FHIR resource data models
 compliant with https://profiles.ihe.net/ITI/PDQm/ implementation guide.
 
-# FHIR R4 ihe_pdqm package
+# FHIR R4 health.fhir.r4.ihe.pdqm320 package
 
 ## Package Overview
 

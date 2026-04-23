@@ -28,13 +28,13 @@ compliant with https://profiles.ihe.net/ITI/PDQm/ implementation guide.
 | 6). AuditPdqmMatchSupplier | [[Definition]][s6] [[Ballerina Record]][m6] |
 | 7). PDQmMatchInput | [[Definition]][s7] [[Ballerina Record]][m7] |
 
-[m1]: https://lib.ballerina.io/healthcare_samples/ihe_pdqm/1.0.0#AuditPdqmQuerySupplier
-[m2]: https://lib.ballerina.io/healthcare_samples/ihe_pdqm/1.0.0#MatchParametersIn
-[m3]: https://lib.ballerina.io/healthcare_samples/ihe_pdqm/1.0.0#PDQmPatient
-[m4]: https://lib.ballerina.io/healthcare_samples/ihe_pdqm/1.0.0#AuditPdqmQueryConsumer
-[m5]: https://lib.ballerina.io/healthcare_samples/ihe_pdqm/1.0.0#AuditPdqmMatchConsumer
-[m6]: https://lib.ballerina.io/healthcare_samples/ihe_pdqm/1.0.0#AuditPdqmMatchSupplier
-[m7]: https://lib.ballerina.io/healthcare_samples/ihe_pdqm/1.0.0#PDQmMatchInput
+[m1]: https://lib.ballerina.io/ballerinax/health.fhir.r4.ihe.pdqm320/1.0.0#AuditPdqmQuerySupplier
+[m2]: https://lib.ballerina.io/ballerinax/health.fhir.r4.ihe.pdqm320/1.0.0#MatchParametersIn
+[m3]: https://lib.ballerina.io/ballerinax/health.fhir.r4.ihe.pdqm320/1.0.0#PDQmPatient
+[m4]: https://lib.ballerina.io/ballerinax/health.fhir.r4.ihe.pdqm320/1.0.0#AuditPdqmQueryConsumer
+[m5]: https://lib.ballerina.io/ballerinax/health.fhir.r4.ihe.pdqm320/1.0.0#AuditPdqmMatchConsumer
+[m6]: https://lib.ballerina.io/ballerinax/health.fhir.r4.ihe.pdqm320/1.0.0#AuditPdqmMatchSupplier
+[m7]: https://lib.ballerina.io/ballerinax/health.fhir.r4.ihe.pdqm320/1.0.0#PDQmMatchInput
 
 [s1]: https://profiles.ihe.net/ITI/PDQm/StructureDefinition/IHE.PDQm.Query.Audit.Supplier
 [s2]: https://profiles.ihe.net/ITI/PDQm/StructureDefinition/IHE.PDQm.MatchParametersIn
