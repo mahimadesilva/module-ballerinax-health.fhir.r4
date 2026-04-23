@@ -1141,7 +1141,7 @@ public type MatchParametersInParameter record {|
 
         "resource": {
             name: "resource",
-            dataType: international401:Patient,
+            dataType: PDQmMatchInput,
             min: 1,
             max: 1,
             isArray: false,
@@ -1574,7 +1574,7 @@ public type MatchParametersInParameterResource record {|
     r4:canonical valueCanonical?;
     r4:Count valueCount?;
     r4:id valueId?;
-    international401:Patient 'resource;
+    PDQmMatchInput 'resource;
     r4:code valueCode?;
     r4:Address valueAddress?;
     r4:ContactPoint valueContactPoint?;
