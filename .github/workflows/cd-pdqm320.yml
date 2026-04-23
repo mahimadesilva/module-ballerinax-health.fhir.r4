@@ -19,7 +19,7 @@ on:
         - 2201.10.4
         - 2201.12.3
         required: false
-        default: 2201.10.2
+        default: 2201.12.3
 
 jobs:
   build:

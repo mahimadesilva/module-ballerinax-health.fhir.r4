@@ -66,11 +66,11 @@ This section focuses on samples depicting how to use this package to implement F
 1. Install Ballerina 2201.6.0 or later
 
 ### 1. Parse JSON FHIR resource to FHIR resource model
-Sample below is using the PDQmPatient resource in `health.fhir.r4.ihe.pdqm` package.
+Sample below is using the PDQmPatient resource in `health.fhir.r4.ihe.pdqm320` package.
 
 ```ballerina
 import ballerina/log;
-import ballerinax/health.fhir.r4.ihe.pdqm;
+import ballerinax/health.fhir.r4.ihe.pdqm320;
 import ballerinax/health.fhir.r4.parser;
 
 public function main() {
@@ -101,8 +101,8 @@ public function main() {
     };
 
     do {
-        anydata parsedResult = check parser:parse(patientPayload, pdqm:PDQmPatient);
-        pdqm:PDQmPatient patientModel = check parsedResult.ensureType();
+        anydata parsedResult = check parser:parse(patientPayload, pdqm320:PDQmPatient);
+        pdqm320:PDQmPatient patientModel = check parsedResult.ensureType();
         log:printInfo(string `Patient name : ${patientModel.name.toString()}`);
     } on fail error parseError {
         log:printError(string `Error occurred while parsing : ${parseError.message()}`, parseError);
@@ -116,13 +116,13 @@ public function main() {
 import ballerina/log;
 import ballerina/time;
 import ballerinax/health.fhir.r4;
-import ballerinax/health.fhir.r4.ihe.pdqm;
+import ballerinax/health.fhir.r4.ihe.pdqm320;
 
 public function main() {
-    pdqm:PDQmPatient patient = {
+    pdqm320:PDQmPatient patient = {
         meta: {
             lastUpdated: time:utcToString(time:utcNow()),
-            profile: [pdqm:PROFILE_BASE_PDQMPATIENT]
+            profile: [pdqm320:PROFILE_BASE_PDQMPATIENT]
         },
         active: true,
         name: [{
