@@ -25,7 +25,7 @@ const FHIR_IG = "ihe_pdqm";
 # Initializer for the module
 # + return - returns error if error occurred
 function init() returns r4:FHIRError? {
-    // Anything to initialize should happen here here
+    // Anything to initialize should happen here
 
     //update terminology processor
     // TODO: https://github.com/wso2-enterprise/open-healthcare/issues/1047
