@@ -613,14 +613,6 @@ public isolated class FHIRPreprocessor {
                 }
             }
 
-            // Store matched ID in payload for resource server (if not already present)
-            if !hasIdInPayload {
-                json payloadMutable = payload;
-                map<json> payloadMap = <map<json>>payloadMutable;
-                payloadMap["id"] = matchedId;
-                log:printDebug(string `Added matched ID to payload: ${matchedId}`);
-            }
-
             // Update resourceId to matched ID for context
             resourceId = matchedId;
 
@@ -684,11 +676,19 @@ public isolated class FHIRPreprocessor {
 
         // ===== CREATE FHIR CONTEXT FOR RESOURCE SERVER =====
 
-        // Create interaction with matched/payload ID
-        readonly & FHIRUpdateInteraction updateInteraction = {id: resourceId ?: ""};
+        // Choose interaction type per FHIR conditional-update decision table:
+        // matchCount==0 && no ID in payload → create; all other valid cases → update
+        readonly & r4:FHIRInteraction chosenInteraction;
+        if matchCount == 0 && !hasIdInPayload {
+            readonly & FHIRCreateInteraction createInteraction = {};
+            chosenInteraction = createInteraction;
+        } else {
+            readonly & FHIRUpdateInteraction updateInteraction = {id: resourceId ?: ""};
+            chosenInteraction = updateInteraction;
+        }
 
         // Create FHIR request
-        r4:FHIRRequest fhirRequest = new (updateInteraction, fhirResourceType, resourceEntity,
+        r4:FHIRRequest fhirRequest = new (chosenInteraction, fhirResourceType, resourceEntity,
                                           requestSearchParameters.cloneReadOnly(), clientHeaders.acceptType);
 
         // Populate JWT information
