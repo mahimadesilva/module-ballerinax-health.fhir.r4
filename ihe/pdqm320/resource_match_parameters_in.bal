@@ -119,8 +119,8 @@ public type MatchParametersIn record {|
             message: "Validation failed for $.Parameters.parameter constraint. This field must be an array containing at least one item."
         },
         maxLength: {
-            value: 1,
-            message: "Validation failed for $.Parameters.parameter constraint. This field must be an array containing at most one item."
+            value: 3,
+            message: "Validation failed for $.Parameters.parameter constraint. This field must be an array containing at most three items."
         }
     }
     MatchParametersInParameter [] 'parameter;
