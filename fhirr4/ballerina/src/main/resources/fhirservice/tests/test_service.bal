@@ -55,13 +55,11 @@ Service fhirService = service object {
                 string idValue = id[0].value;
 
                 if idValue == "New" {
-                    // return not found error if the id is not "New"
-                    return r4:createFHIRError(
-                        "Resource not found",
-                        r4:ERROR,
-                        r4:INVALID,
-                        httpStatusCode = http:STATUS_NOT_FOUND
-                    );
+                    // FHIR R4 search must return an empty searchset Bundle when no
+                    // resources match, not 404. The conditional-create handler relies
+                    // on entry.length() == 0 to allow creation.
+                    r4:DomainResource[] empty = [];
+                    return r4:createFhirBundle(r4:BUNDLE_TYPE_SEARCHSET, empty);
                 } else {
                     patients = [
                         {
