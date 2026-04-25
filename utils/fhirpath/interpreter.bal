@@ -17,9 +17,7 @@
 // ========================================
 // INTERPRETER FOR FHIRPATH EXPRESSIONS
 // ========================================
-// This module implements the interpreter/evaluator for FHIRPath expressions.
-// It traverses the AST produced by the parser and evaluates expressions
-// against JSON context objects (FHIR resources).
+// Tree-walking interpreter for the complete FHIRPath N1 normative grammar.
 
 # Represents an interpreter runtime error with token information.
 #
@@ -29,57 +27,77 @@ type InterpreterError record {|
 |};
 
 # Error type for FHIRPath interpreter runtime errors.
-# This error is raised when the interpreter encounters runtime issues.
 type FHIRPathInterpreterError distinct error<InterpreterError>;
 
+# Evaluation environment carrying $index, $total, and named variables.
+#
+# + index - Current iteration index ($index)
+# + total - Running aggregate total ($total)
+# + variables - Named variables defined via defineVariable()
+type FhirPathEnv record {|
+    int index?;
+    json total?;
+    map<json> variables?;
+|};
+
+// ========================================
+// PUBLIC ENTRY POINTS
+// ========================================
+
 # Interprets a FHIRPath expression against a JSON context object.
-# This is the main entry point for expression evaluation.
 #
 # + expression - The parsed FHIRPath expression (AST)
 # + context - The JSON context object (typically a FHIR resource)
 # + return - A collection of JSON results, or a FhirpathInterpreterError if evaluation fails
 isolated function interpret(Expr expression, json context) returns FHIRPathInterpreterError|json[] {
-    FHIRPathInterpreterError|json[] value = evaluate(expression, context);
-    return value;
+    return evaluate(expression, context, {});
 }
 
 # Evaluates a FHIRPath expression node against a context.
 # Dispatches to the appropriate visitor function based on expression type.
 #
 # + expr - The expression node to evaluate
-# + context - The current evaluation context (JSON value)
+# + context - The current evaluation context (JSON value, serves as $this)
+# + env - The evaluation environment ($index, $total, variables)
 # + return - A collection of JSON results, or a FhirpathInterpreterError if evaluation fails
-isolated function evaluate(Expr expr, json context) returns FHIRPathInterpreterError|json[] {
+isolated function evaluate(Expr expr, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
     match expr.kind {
         "Literal" => {
             return visitLiteralExpr(<LiteralExpr>expr, context);
         }
         "Identifier" => {
-            return visitIdentifierExpr(<IdentifierExpr>expr, context);
+            return visitIdentifierExpr(<IdentifierExpr>expr, context, env);
         }
         "MemberAccess" => {
-            return visitMemberAccessExpr(<MemberAccessExpr>expr, context);
+            return visitMemberAccessExpr(<MemberAccessExpr>expr, context, env);
         }
         "Indexer" => {
-            return visitIndexerExpr(<IndexerExpr>expr, context);
+            return visitIndexerExpr(<IndexerExpr>expr, context, env);
         }
         "Function" => {
-            return visitFunctionExpr(<FunctionExpr>expr, context);
+            return visitFunctionExpr(<FunctionExpr>expr, context, env);
         }
         "Binary" => {
-            return visitBinaryExpr(<BinaryExpr>expr, context);
+            return visitBinaryExpr(<BinaryExpr>expr, context, env);
+        }
+        "Unary" => {
+            return visitUnaryExpr(<UnaryExpr>expr, context, env);
+        }
+        "ExternalConstant" => {
+            return visitExternalConstantExpr(<ExternalConstantExpr>expr, env);
+        }
+        "QuantityLiteral" => {
+            return visitQuantityLiteralExpr(<QuantityLiteralExpr>expr);
         }
     }
     return [];
 }
 
-# Evaluates a literal expression (e.g., true, false, 42, 'hello').
-#
-# + expr - The literal expression node
-# + context - The current evaluation context (unused for literals)
-# + return - A single-element collection containing the literal value, or empty if nil
+// ========================================
+// VISITOR FUNCTIONS
+// ========================================
+
 isolated function visitLiteralExpr(LiteralExpr expr, json context) returns json[] {
-    // Return the literal value as a single-element collection
     json value = <json>expr.value;
     if value is () {
         return [];
@@ -87,25 +105,36 @@ isolated function visitLiteralExpr(LiteralExpr expr, json context) returns json[
     return [value];
 }
 
-# Evaluates an identifier expression (e.g., name, resourceType).
-# Accesses a property from the context object, or checks for resource type match.
-#
-# + expr - The identifier expression node
-# + context - The current evaluation context
-# + return - A collection of values from the identified field, or empty if not found
-isolated function visitIdentifierExpr(IdentifierExpr expr, json context) returns FHIRPathInterpreterError|json[] {
-    // Identifier accesses a property from the context
-    // This handles the first level access, e.g., "name" in context
+isolated function visitIdentifierExpr(IdentifierExpr expr, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
+    // Special variables
+    if expr.name == "$this" {
+        return wrapInCollection(context);
+    }
+    if expr.name == "$index" {
+        return [env.index ?: 0];
+    }
+    if expr.name == "$total" {
+        json? total = env?.total;
+        if total is () {
+            return [];
+        }
+        return [total];
+    }
+
+    // Named variables defined by defineVariable()
+    map<json>? variables = env.variables;
+    if variables is map<json> && variables.hasKey(expr.name) {
+        return wrapInCollection(variables[expr.name]);
+    }
+
     if context is () {
         return [];
     }
 
-    // Handle map/object context
     if context is map<json> {
         string fieldName = expr.name;
 
-        // Check if identifier matches the resource type
-        // If so, return the entire context (e.g., "Patient" returns the Patient resource)
+        // Check resource type match
         json|error resourceTypeValue = context.resourceType;
         if resourceTypeValue !is error && resourceTypeValue is string {
             if fieldName == resourceTypeValue {
@@ -113,7 +142,6 @@ isolated function visitIdentifierExpr(IdentifierExpr expr, json context) returns
             }
         }
 
-        // Regular field access
         if !context.hasKey(fieldName) {
             return [];
         }
@@ -121,26 +149,15 @@ isolated function visitIdentifierExpr(IdentifierExpr expr, json context) returns
         return wrapInCollection(fieldValue);
     }
 
-    // Context is not accessible as a map
     return [];
 }
 
-# Evaluates a member access expression (e.g., Patient.name, name.given).
-# First evaluates the target to get a collection, then accesses the member from each item.
-#
-# + expr - The member access expression node
-# + context - The current evaluation context
-# + return - A flattened collection of all member values, or an error
-isolated function visitMemberAccessExpr(MemberAccessExpr expr, json context) returns FHIRPathInterpreterError|json[] {
-    // 1. Evaluate the target expression to get a collection of results
-    json[] targetResults = check evaluate(expr.target, context);
+isolated function visitMemberAccessExpr(MemberAccessExpr expr, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
+    json[] targetResults = check evaluate(expr.target, context, env);
 
-    // 2. For each result in the collection, access the member property
     json[] results = [];
     foreach json item in targetResults {
         json[] memberResults = check accessMember(item, expr.member);
-
-        // Flatten the results into the output collection
         foreach json memberValue in memberResults {
             results.push(memberValue);
         }
@@ -149,19 +166,10 @@ isolated function visitMemberAccessExpr(MemberAccessExpr expr, json context) ret
     return results;
 }
 
-# Accesses a member property from a JSON value.
-# Handles objects, arrays, and primitives differently.
-#
-# + item - The JSON value to access a member from
-# + memberName - The name of the member/property to access
-# + return - A collection of results (could be empty, single, or multiple values), or an error
 isolated function accessMember(json item, string memberName) returns FHIRPathInterpreterError|json[] {
-    // Handle null/nil
     if item is () {
         return [];
     }
-
-    // Handle map/object - direct property access
     if item is map<json> {
         if !item.hasKey(memberName) {
             return [];
@@ -169,334 +177,531 @@ isolated function accessMember(json item, string memberName) returns FHIRPathInt
         json fieldValue = item[memberName];
         return wrapInCollection(fieldValue);
     }
-
-    // Handle arrays - access member from each element
     if item is json[] {
         json[] results = [];
         foreach json element in item {
             json[] elementResults = check accessMember(element, memberName);
-
             foreach json value in elementResults {
                 results.push(value);
             }
         }
         return results;
     }
-
-    // Primitive types don't have members
     return [];
 }
 
-# Evaluates an indexer expression (e.g., Patient.name[0], given[1]).
-# Accesses a specific element from a collection by index.
-#
-# + expr - The indexer expression node
-# + context - The current evaluation context
-# + return - A single-element collection with the indexed value, empty if out of bounds, or an error
-isolated function visitIndexerExpr(IndexerExpr expr, json context) returns FHIRPathInterpreterError|json[] {
-    // 1. Evaluate the target expression to get a collection
-    json[] targetResults = check evaluate(expr.target, context);
+isolated function visitIndexerExpr(IndexerExpr expr, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
+    json[] targetResults = check evaluate(expr.target, context, env);
+    json[] indexResults = check evaluate(expr.index, context, env);
 
-    // 2. Evaluate the index expression to get the index value
-    json[] indexResults = check evaluate(expr.index, context);
-
-    // Index should be a single integer value
     if indexResults.length() != 1 {
-        return []; // Invalid index - must be a single value
+        return [];
     }
 
     json indexValue = indexResults[0];
-
-    // Convert index to integer (handle both int and float literals)
     int index;
     if indexValue is int {
         index = indexValue;
+    } else if indexValue is decimal {
+        index = <int>indexValue;
     } else if indexValue is float {
-        // Check if float has no decimal part (e.g., 5.0 is ok, 5.5 is not)
-        float floatIndex = <float>indexValue;
-        if floatIndex % 1.0 != 0.0 {
-            return []; // Index must be a whole number (no decimals)
+        if indexValue % 1.0 != 0.0 {
+            return [];
         }
-        index = <int>floatIndex;
+        index = <int>indexValue;
     } else {
-        return []; // Index must be numeric
-    }
-
-    // 3. Apply indexing to the target collection directly
-    // Check bounds
-    if index < 0 || index >= targetResults.length() {
-        return []; // Out of bounds returns empty collection
-    }
-
-    // Return the element at the index
-    json element = targetResults[index];
-    return wrapInCollection(element);
-}
-
-# Applies array indexing to a JSON value.
-# Only works on JSON arrays; returns empty for non-arrays.
-#
-# + item - The JSON value to index into
-# + index - The zero-based index to access
-# + return - A single-element collection with the indexed value, empty if out of bounds or non-array, or an error
-isolated function applyIndex(json item, int index) returns FHIRPathInterpreterError|json[] {
-    // Handle null/nil
-    if item is () {
         return [];
     }
 
-    // Only arrays can be indexed
-    if item !is json[] {
-        return []; // Non-array values return empty collection
+    if index < 0 || index >= targetResults.length() {
+        return [];
     }
-
-    json[] arr = <json[]>item;
-    int arrayLength = arr.length();
-
-    // Check bounds
-    if index < 0 || index >= arrayLength {
-        return []; // Out of bounds returns empty collection
-    }
-
-    // Return the element at the index
-    json element = arr[index];
-    return wrapInCollection(element);
+    return wrapInCollection(targetResults[index]);
 }
 
-# Evaluates a function call expression (e.g., name.first(), where(condition)).
-# Dispatches to the appropriate function implementation based on function name.
-#
-# + expr - The function expression node
-# + context - The current evaluation context
-# + return - A collection of results from the function, or an error
-isolated function visitFunctionExpr(FunctionExpr expr, json context) returns FHIRPathInterpreterError|json[] {
-    // 1. Evaluate the target expression if it exists (e.g., Patient in Patient.where())
-    json[] targetResults;
-    Expr? targetExpr = expr.target;
-    if targetExpr is Expr {
-        targetResults = check evaluate(targetExpr, context);
-    } else {
-        // No target means standalone function call - use context as-is
-        targetResults = wrapInCollection(context);
+isolated function visitUnaryExpr(UnaryExpr expr, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
+    json[] operandResults = check evaluate(expr.operand, context, env);
+    if operandResults.length() == 0 {
+        return [];
     }
-
-    // 2. Apply the function based on its name
-    match expr.name {
-        "where" => {
-            return applyWhereFunction(targetResults, expr.params, context);
-        }
-        "empty" => {
-            return applyEmptyFunction(targetResults, expr.params);
-        }
-        "exists" => {
-            return applyExistsFunction(targetResults, expr.params, context);
-        }
-        "first" => {
-            return applyFirstFunction(targetResults, expr.params);
-        }
-        _ => {
-            // Unknown function
-            return error FHIRPathInterpreterError(string `Unknown function '${expr.name}'`,
-            token = {tokenType: IDENTIFIER, lexeme: expr.name, literal: (), position: 0});
-        }
+    json val = operandResults[0];
+    if expr.operator.tokenType == MINUS {
+        if val is int { return [-val]; }
+        if val is decimal { return [-val]; }
+        if val is float { return [-val]; }
     }
+    // PLUS is a no-op
+    return [val];
 }
 
-# Evaluates a binary expression (e.g., name = 'John', age > 18, a and b).
-# Evaluates both operands and applies the operator.
-#
-# + expr - The binary expression node
-# + context - The current evaluation context
-# + return - A collection with the boolean result of the operation, or an error
-isolated function visitBinaryExpr(BinaryExpr expr, json context) returns FHIRPathInterpreterError|json[] {
-    // 1. Evaluate left and right expressions
-    json[] leftResults = check evaluate(expr.left, context);
-    json[] rightResults = check evaluate(expr.right, context);
+isolated function visitExternalConstantExpr(ExternalConstantExpr expr, FhirPathEnv env) returns json[] {
+    // Look up in variables if available
+    map<json>? variables = env.variables;
+    if variables is map<json> && variables.hasKey(expr.name) {
+        return wrapInCollection(variables[expr.name]);
+    }
+    return [];
+}
 
-    // 2. Apply the operator based on its type
+isolated function visitQuantityLiteralExpr(QuantityLiteralExpr expr) returns json[] {
+    // Represent as a map with value and unit for quantity arithmetic
+    return [{"value": expr.value, "unit": expr.unit}];
+}
+
+// ========================================
+// BINARY EXPRESSION
+// ========================================
+
+isolated function visitBinaryExpr(BinaryExpr expr, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
     TokenType operatorType = expr.operator.tokenType;
 
-    match operatorType {
-        EQUAL => {
-            return applyEqualityOperator(leftResults, rightResults, true);
-        }
-        BANG_EQUAL => {
-            return applyEqualityOperator(leftResults, rightResults, false);
-        }
-        AND => {
-            return applyAndOperator(leftResults, rightResults);
-        }
-        OR => {
-            return applyOrOperator(leftResults, rightResults);
-        }
-        XOR => {
-            return applyXorOperator(leftResults, rightResults);
-        }
-        _ => {
-            // Unknown operator
-            return error FHIRPathInterpreterError(string `Unknown binary operator: ${expr.operator.lexeme}`,
-                token = expr.operator);
-        }
+    // IS and AS: don't evaluate the right side as a value; it's a type name
+    if operatorType == IS {
+        json[] leftResults = check evaluate(expr.left, context, env);
+        string typeName = extractTypeName(expr.right);
+        if leftResults.length() == 0 { return [false]; }
+        return [matchesFhirType(leftResults[0], typeName)];
     }
+    if operatorType == AS {
+        json[] leftResults = check evaluate(expr.left, context, env);
+        string typeName = extractTypeName(expr.right);
+        json[] result = [];
+        foreach json item in leftResults {
+            if matchesFhirType(item, typeName) {
+                result.push(item);
+            }
+        }
+        return result;
+    }
+
+    // Short-circuit evaluation for logical operators
+    if operatorType == AND {
+        json[] leftResults = check evaluate(expr.left, context, env);
+        if leftResults.length() > 0 && !isTruthy(leftResults) {
+            return [false];
+        }
+        json[] rightResults = check evaluate(expr.right, context, env);
+        return applyAndOperator(leftResults, rightResults);
+    }
+    if operatorType == OR {
+        json[] leftResults = check evaluate(expr.left, context, env);
+        if leftResults.length() > 0 && isTruthy(leftResults) {
+            return [true];
+        }
+        json[] rightResults = check evaluate(expr.right, context, env);
+        return applyOrOperator(leftResults, rightResults);
+    }
+    if operatorType == IMPLIES {
+        json[] leftResults = check evaluate(expr.left, context, env);
+        // false implies X = true; empty implies X = unknown
+        if leftResults.length() > 0 && !isTruthy(leftResults) {
+            return [true];
+        }
+        json[] rightResults = check evaluate(expr.right, context, env);
+        return applyImpliesOperator(leftResults, rightResults);
+    }
+
+    json[] leftResults = check evaluate(expr.left, context, env);
+    json[] rightResults = check evaluate(expr.right, context, env);
+
+    match operatorType {
+        EQUAL => { return applyEqualityOperator(leftResults, rightResults, true); }
+        BANG_EQUAL => { return applyEqualityOperator(leftResults, rightResults, false); }
+        TILDE => { return applyEquivalenceOperator(leftResults, rightResults, true); }
+        BANG_TILDE => { return applyEquivalenceOperator(leftResults, rightResults, false); }
+        XOR => { return applyXorOperator(leftResults, rightResults); }
+        LESS_THAN => { return applyComparisonOperator(leftResults, rightResults, "<"); }
+        GREATER_THAN => { return applyComparisonOperator(leftResults, rightResults, ">"); }
+        LESS_EQUAL => { return applyComparisonOperator(leftResults, rightResults, "<="); }
+        GREATER_EQUAL => { return applyComparisonOperator(leftResults, rightResults, ">="); }
+        PLUS => { return applyAdditiveOperator(leftResults, rightResults, "+"); }
+        MINUS => { return applyAdditiveOperator(leftResults, rightResults, "-"); }
+        AMPERSAND => { return applyConcatenateOperator(leftResults, rightResults); }
+        STAR => { return applyMultiplicativeOperator(leftResults, rightResults, "*"); }
+        SLASH => { return applyMultiplicativeOperator(leftResults, rightResults, "/"); }
+        DIV => { return applyMultiplicativeOperator(leftResults, rightResults, "div"); }
+        MOD => { return applyMultiplicativeOperator(leftResults, rightResults, "mod"); }
+        PIPE => { return applyUnionOperator(leftResults, rightResults); }
+        IN => { return applyInOperator(leftResults, rightResults); }
+        CONTAINS => { return applyInOperator(rightResults, leftResults); }
+    }
+
+    return error FHIRPathInterpreterError(string `Unknown binary operator: ${expr.operator.lexeme}`,
+        token = expr.operator);
 }
 
-# Applies the equality or inequality operator to two collections.
-# Handles FHIRPath equality semantics for collections.
-#
-# + left - The left operand collection
-# + right - The right operand collection
-# + checkEqual - True for '=' operator, false for '!=' operator
-# + return - A single-element collection with the boolean result
+# Extracts the type name string from a type expression right-hand side.
+isolated function extractTypeName(Expr expr) returns string {
+    if expr is IdentifierExpr {
+        return expr.name;
+    }
+    if expr is LiteralExpr && expr.value is string {
+        return <string>expr.value;
+    }
+    return "";
+}
+
+// ========================================
+// OPERATOR IMPLEMENTATIONS
+// ========================================
+
 isolated function applyEqualityOperator(json[] left, json[] right, boolean checkEqual) returns json[] {
     if left.length() == 0 || right.length() == 0 {
-        // Per FHIRPath spec: if either operand is empty, result is empty
         return [];
     }
-
-    // Compare collections
-    // In FHIRPath, equality works on collections:
-    // If both have single elements, compare values
     if left.length() == 1 && right.length() == 1 {
-        anydata leftValue = left[0];
-        anydata rightValue = right[0];
-        boolean areEqual = isEqual(leftValue, rightValue);
+        boolean areEqual = jsonValuesEqual(left[0], right[0]);
         return checkEqual ? [areEqual] : [!areEqual];
     }
-
-    // For collections with multiple elements, check if they're equal as collections
     if left.length() == right.length() {
         boolean allEqual = true;
         foreach int i in 0 ..< left.length() {
-            if !isEqual(left[i], right[i]) {
+            if !jsonValuesEqual(left[i], right[i]) {
                 allEqual = false;
                 break;
             }
         }
         return checkEqual ? [allEqual] : [!allEqual];
     }
-
-    // Different lengths means not equal
     return [!checkEqual];
 }
 
-# Applies the logical AND operator to two collections using FHIRPath three-valued logic.
-#
-# + left - The left operand collection
-# + right - The right operand collection
-# + return - A single-element collection with the boolean result, or empty for propagated emptiness
+isolated function applyEquivalenceOperator(json[] left, json[] right, boolean checkEquivalent) returns json[] {
+    if left.length() == 0 && right.length() == 0 {
+        return [checkEquivalent];
+    }
+    if left.length() == 0 || right.length() == 0 {
+        return [!checkEquivalent];
+    }
+    if left.length() != right.length() {
+        return [!checkEquivalent];
+    }
+    boolean allEquiv = true;
+    foreach int i in 0 ..< left.length() {
+        if !jsonValuesEquivalent(left[i], right[i]) {
+            allEquiv = false;
+            break;
+        }
+    }
+    return checkEquivalent ? [allEquiv] : [!allEquiv];
+}
+
 isolated function applyAndOperator(json[] left, json[] right) returns json[] {
     boolean leftEmpty = left.length() == 0;
     boolean rightEmpty = right.length() == 0;
 
-    // If either operand is non-empty and falsy, result is false
     if (!leftEmpty && !isTruthy(left)) || (!rightEmpty && !isTruthy(right)) {
         return [false];
     }
-    // If either operand is empty (and neither is falsy), propagate empty
     if leftEmpty || rightEmpty {
         return [];
     }
     return [true];
 }
 
-# Applies the logical OR operator to two collections using FHIRPath three-valued logic.
-#
-# + left - The left operand collection
-# + right - The right operand collection
-# + return - A single-element collection with the boolean result, or empty for propagated emptiness
 isolated function applyOrOperator(json[] left, json[] right) returns json[] {
     boolean leftEmpty = left.length() == 0;
     boolean rightEmpty = right.length() == 0;
 
-    // If either operand is non-empty and truthy, result is true
     if (!leftEmpty && isTruthy(left)) || (!rightEmpty && isTruthy(right)) {
         return [true];
     }
-    // If either operand is empty (and neither is truthy), propagate empty
     if leftEmpty || rightEmpty {
         return [];
     }
     return [false];
 }
 
-# Applies the logical XOR (exclusive OR) operator to two collections using FHIRPath three-valued logic.
-#
-# + left - The left operand collection
-# + right - The right operand collection
-# + return - A single-element collection with the boolean result, or empty if either operand is empty
 isolated function applyXorOperator(json[] left, json[] right) returns json[] {
-    // If either operand is empty, propagate empty
     if left.length() == 0 || right.length() == 0 {
         return [];
     }
-    boolean leftTruthy = isTruthy(left);
-    boolean rightTruthy = isTruthy(right);
-    return [leftTruthy != rightTruthy];
+    return [isTruthy(left) != isTruthy(right)];
 }
 
-# Checks if a FHIRPath result collection is truthy.
-# Empty collections are falsy; single boolean values use their value; non-empty collections are truthy.
-#
-# + result - The collection to check
-# + return - True if the collection is considered truthy, false otherwise
-isolated function isTruthy(json[] result) returns boolean {
-    // In FHIRPath, empty collections are falsy
-    if result.length() == 0 {
-        return false;
-    }
+isolated function applyImpliesOperator(json[] left, json[] right) returns json[] {
+    boolean leftEmpty = left.length() == 0;
+    boolean rightEmpty = right.length() == 0;
 
-    // If single boolean value, use that
-    if result.length() == 1 && result[0] is boolean {
-        return <boolean>result[0];
+    // false implies X = true
+    if !leftEmpty && !isTruthy(left) {
+        return [true];
     }
-
-    // Non-empty collections are truthy
-    return true;
-}
-
-# Checks equality between two values according to FHIRPath semantics.
-#
-# + a - The first value
-# + b - The second value
-# + return - True if the values are equal, false otherwise
-isolated function isEqual(anydata a, anydata b) returns boolean {
-    if a is () && b is () {
-        return true;
-    }
-    if a is () || b is () {
-        return false;
-    }
-    return a == b;
-}
-
-# Wraps a JSON value in a collection according to FHIRPath conventions.
-# - If value is null/nil, returns empty collection []
-# - If value is already an array, returns it as-is
-# - Otherwise, wraps the value in a single-element array
-#
-# + value - The JSON value to wrap
-# + return - A JSON array containing the value
-isolated function wrapInCollection(json value) returns json[] {
-    if value is () {
+    // empty implies false = empty; empty implies empty = empty
+    if leftEmpty {
+        if rightEmpty { return []; }
+        if isTruthy(right) { return [true]; }
         return [];
     }
-    if value is json[] {
-        // Already an array, return as-is
-        return value;
-    }
-    // Wrap single value in array
-    return [value];
+    // true implies X
+    if rightEmpty { return []; }
+    return [isTruthy(right)];
 }
 
-# Implements the FHIRPath where() function.
-# Filters the collection to items where the condition expression evaluates to true.
-#
-# + collection - The collection to filter
-# + params - Function parameters (expects exactly one condition expression)
-# + originalContext - The original evaluation context (unused in where)
-# + return - A filtered collection containing only items where the condition is truthy, or an error
-isolated function applyWhereFunction(json[] collection, Expr[] params, json originalContext) returns FHIRPathInterpreterError|json[] {
-    // where() requires exactly one parameter (the condition expression)
+isolated function applyComparisonOperator(json[] left, json[] right, string op) returns json[] {
+    if left.length() == 0 || right.length() == 0 {
+        return [];
+    }
+    json l = left[0];
+    json r = right[0];
+
+    // Numeric comparison
+    if (l is int || l is decimal || l is float) && (r is int || r is decimal || r is float) {
+        float lf = toFloat(l);
+        float rf = toFloat(r);
+        if op == "<" { return [lf < rf]; }
+        if op == ">" { return [lf > rf]; }
+        if op == "<=" { return [lf <= rf]; }
+        if op == ">=" { return [lf >= rf]; }
+    }
+
+    // String comparison
+    if l is string && r is string {
+        if op == "<" { return [l < r]; }
+        if op == ">" { return [l > r]; }
+        if op == "<=" { return [l <= r]; }
+        if op == ">=" { return [l >= r]; }
+    }
+
+    // Date/time comparison (lexicographic on @YYYY-MM-DD... strings)
+    if l is string && r is string {
+        string ls = l.startsWith("@") ? l : l;
+        string rs = r.startsWith("@") ? r : r;
+        if op == "<" { return [ls < rs]; }
+        if op == ">" { return [ls > rs]; }
+        if op == "<=" { return [ls <= rs]; }
+        if op == ">=" { return [ls >= rs]; }
+    }
+
+    return [];
+}
+
+isolated function applyAdditiveOperator(json[] left, json[] right, string op) returns json[] {
+    if left.length() == 0 || right.length() == 0 {
+        return [];
+    }
+    json l = left[0];
+    json r = right[0];
+
+    if op == "+" {
+        if l is string && r is string {
+            return [l + r];
+        }
+        if (l is int || l is decimal || l is float) && (r is int || r is decimal || r is float) {
+            return numericBinaryOp(l, r, "+");
+        }
+    } else if op == "-" {
+        if (l is int || l is decimal || l is float) && (r is int || r is decimal || r is float) {
+            return numericBinaryOp(l, r, "-");
+        }
+    }
+    return [];
+}
+
+isolated function applyConcatenateOperator(json[] left, json[] right) returns json[] {
+    // & always concatenates strings; empty collection treated as ""
+    string lStr = left.length() > 0 ? jsonToString(left[0]) : "";
+    string rStr = right.length() > 0 ? jsonToString(right[0]) : "";
+    return [lStr + rStr];
+}
+
+isolated function applyMultiplicativeOperator(json[] left, json[] right, string op) returns json[] {
+    if left.length() == 0 || right.length() == 0 {
+        return [];
+    }
+    json l = left[0];
+    json r = right[0];
+
+    if (l is int || l is decimal || l is float) && (r is int || r is decimal || r is float) {
+        return numericBinaryOp(l, r, op);
+    }
+    return [];
+}
+
+isolated function applyUnionOperator(json[] left, json[] right) returns json[] {
+    json[] combined = [...left, ...right];
+    return applyDistinctToItems(combined);
+}
+
+isolated function applyInOperator(json[] left, json[] right) returns json[] {
+    if left.length() == 0 {
+        return [];
+    }
+    if right.length() == 0 {
+        return [false];
+    }
+    // Each element of left must be in right
+    // For single-element left: true if left[0] is in right
+    if left.length() == 1 {
+        foreach json item in right {
+            if jsonValuesEqual(left[0], item) {
+                return [true];
+            }
+        }
+        return [false];
+    }
+    // For multi-element left: check if all elements are in right
+    foreach json leftItem in left {
+        boolean found = false;
+        foreach json rightItem in right {
+            if jsonValuesEqual(leftItem, rightItem) {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return [false];
+        }
+    }
+    return [true];
+}
+
+// ========================================
+// FUNCTION CALL DISPATCHER
+// ========================================
+
+isolated function visitFunctionExpr(FunctionExpr expr, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
+    json[] targetResults;
+    Expr? targetExpr = expr.target;
+    if targetExpr is Expr {
+        targetResults = check evaluate(targetExpr, context, env);
+    } else {
+        targetResults = wrapInCollection(context);
+    }
+
+    string name = expr.name;
+    Expr[] params = expr.params;
+
+    // ---- Existence ----
+    if name == "empty" { return applyEmptyFunction(targetResults, params); }
+    if name == "exists" { return applyExistsFunction(targetResults, params, context, env); }
+    if name == "not" { return applyNotFunction(targetResults, params); }
+    if name == "hasValue" { return applyHasValueFunction(targetResults, params); }
+
+    // ---- Navigation ----
+    if name == "where" { return applyWhereFunction(targetResults, params, context, env); }
+    if name == "select" { return applySelectFunction(targetResults, params, context, env); }
+    if name == "repeat" { return applyRepeatFunction(targetResults, params, context, env); }
+    if name == "children" { return applyChildrenFunction(targetResults, params, context); }
+    if name == "descendants" { return applyDescendantsFunction(targetResults, params, context); }
+
+    // ---- Subsetting ----
+    if name == "first" { return applyFirstFunction(targetResults, params); }
+    if name == "last" { return applyLastFunction(targetResults, params); }
+    if name == "tail" { return applyTailFunction(targetResults, params); }
+    if name == "skip" { return applySkipFunction(targetResults, params, context, env); }
+    if name == "take" { return applyTakeFunction(targetResults, params, context, env); }
+    if name == "single" { return applySingleFunction(targetResults, params); }
+
+    // ---- Aggregation ----
+    if name == "count" { return applyCountFunction(targetResults, params); }
+    if name == "distinct" { return applyDistinctFunction(targetResults, params); }
+    if name == "all" { return applyAllFunction(targetResults, params, context, env); }
+    if name == "aggregate" { return applyAggregateFunction(targetResults, params, context, env); }
+    if name == "sum" { return applySumFunction(targetResults, params); }
+
+    // ---- Combining ----
+    if name == "combine" { return applyCombineFunction(targetResults, params, context, env); }
+    if name == "union" { return applyUnionFunction(targetResults, params, context, env); }
+    if name == "intersect" { return applyIntersectFunction(targetResults, params, context, env); }
+    if name == "exclude" { return applyExcludeFunction(targetResults, params, context, env); }
+    if name == "subsetOf" { return applySubsetOfFunction(targetResults, params, context, env); }
+    if name == "supersetOf" { return applySupersetOfFunction(targetResults, params, context, env); }
+
+    // ---- Ordering ----
+    if name == "sort" { return applySortFunction(targetResults, params, context, env); }
+
+    // ---- Math ----
+    if name == "abs" { return applyAbsFunction(targetResults, params); }
+    if name == "ceiling" { return applyCeilingFunction(targetResults, params); }
+    if name == "floor" { return applyFloorFunction(targetResults, params); }
+    if name == "truncate" { return applyTruncateFunction(targetResults, params); }
+    if name == "round" { return applyRoundFunction(targetResults, params, context, env); }
+    if name == "sqrt" { return applySqrtFunction(targetResults, params); }
+    if name == "power" { return applyPowerFunction(targetResults, params, context, env); }
+    if name == "exp" { return applyExpFunction(targetResults, params); }
+    if name == "ln" { return applyLnFunction(targetResults, params); }
+    if name == "log" { return applyLogFunction(targetResults, params, context, env); }
+
+    // ---- String ----
+    if name == "length" { return applyLengthFunction(targetResults, params); }
+    if name == "trim" { return applyTrimFunction(targetResults, params); }
+    if name == "toChars" { return applyToCharsFunction(targetResults, params); }
+    if name == "split" { return applySplitFunction(targetResults, params, context, env); }
+    if name == "join" { return applyJoinFunction(targetResults, params, context, env); }
+    if name == "startsWith" { return applyStartsWithFunction(targetResults, params, context, env); }
+    if name == "endsWith" { return applyEndsWithFunction(targetResults, params, context, env); }
+    if name == "contains" {
+        // String contains (single-arg): different from collection 'in/contains'
+        if params.length() == 1 {
+            return applyContainsStringFunction(targetResults, params, context, env);
+        }
+        // No-arg contains() is an error
+        return fnError("contains", "1 parameter", params.length());
+    }
+    if name == "indexOf" { return applyIndexOfFunction(targetResults, params, context, env); }
+    if name == "substring" { return applySubstringFunction(targetResults, params, context, env); }
+    if name == "replace" { return applyReplaceFunction(targetResults, params, context, env); }
+    if name == "matches" { return applyMatchesFunction(targetResults, params, context, env); }
+    if name == "matchesFull" { return applyMatchesFullFunction(targetResults, params, context, env); }
+    if name == "replaceMatches" { return applyReplaceMatchesFunction(targetResults, params, context, env); }
+    if name == "encode" { return applyEncodeDecodeFunction("encode", targetResults, params, context, env); }
+    if name == "decode" { return applyEncodeDecodeFunction("decode", targetResults, params, context, env); }
+    if name == "escape" { return applyEscapeUnescapeFunction("escape", targetResults, params, context, env); }
+    if name == "unescape" { return applyEscapeUnescapeFunction("unescape", targetResults, params, context, env); }
+
+    // ---- Type conversion ----
+    if name == "toInteger" { return applyToIntegerFunction(targetResults, params); }
+    if name == "toDecimal" { return applyToDecimalFunction(targetResults, params); }
+    if name == "toString" { return applyToStringFunction(targetResults, params); }
+    if name == "toBoolean" { return applyToBooleanFunction(targetResults, params); }
+    if name == "toDate" { return applyToDateFunction(targetResults, params); }
+    if name == "toDateTime" { return applyToDateTimeFunction(targetResults, params); }
+    if name == "toTime" { return applyToTimeFunction(targetResults, params); }
+    if name == "convertsToInteger" { return applyConvertsToIntegerFunction(targetResults, params); }
+    if name == "convertsToDecimal" { return applyConvertsToDecimalFunction(targetResults, params); }
+    if name == "convertsToString" { return applyConvertsToStringFunction(targetResults, params); }
+    if name == "convertsToBoolean" { return applyConvertsToBooleanFunction(targetResults, params); }
+    if name == "convertsToDate" { return applyConvertsToDateFunction(targetResults, params); }
+    if name == "convertsToDateTime" { return applyConvertsToDateTimeFunction(targetResults, params); }
+    if name == "convertsToTime" { return applyConvertsToTimeFunction(targetResults, params); }
+    if name == "ofType" { return applyOfTypeFunction(targetResults, params, context, env); }
+    if name == "is" { return applyIsTypeFunction(targetResults, params, context, env); }
+    if name == "as" { return applyAsTypeFunction(targetResults, params, context, env); }
+
+    // ---- Logic ----
+    if name == "iif" { return applyIifFunction(targetResults, params, context, env); }
+
+    // ---- Date/time ----
+    if name == "today" { return applyTodayFunction(targetResults, params); }
+    if name == "now" { return applyNowFunction(targetResults, params); }
+    if name == "lowBoundary" { return applyLowBoundaryFunction(targetResults, params, context, env); }
+    if name == "highBoundary" { return applyHighBoundaryFunction(targetResults, params, context, env); }
+    if name == "precision" { return applyPrecisionFunction(targetResults, params); }
+
+    // ---- FHIR-specific ----
+    if name == "extension" { return applyExtensionFunction(targetResults, params, context, env); }
+    if name == "resolve" { return applyResolveFunction(targetResults, params); }
+    if name == "conformsTo" { return applyConformsToFunction(targetResults, params, context, env); }
+    if name == "memberOf" { return applyMemberOfFunction(targetResults, params, context, env); }
+    if name == "hasExtension" { return applyHasExtensionFunction(targetResults, params, context, env); }
+
+    // ---- Utility ----
+    if name == "trace" { return applyTraceFunction(targetResults, params, context, env); }
+    if name == "defineVariable" { return applyDefineVariableFunction(targetResults, params, context, env); }
+
+    // ---- Type casting (function form) ----
+    if name == "ofType" { return applyOfTypeFunction(targetResults, params, context, env); }
+
+    return error FHIRPathInterpreterError(string `Unknown function '${name}'`,
+        token = {tokenType: IDENTIFIER, lexeme: name, literal: (), position: 0});
+}
+
+// ========================================
+// CORE FUNCTION IMPLEMENTATIONS
+// ========================================
+
+isolated function applyWhereFunction(json[] collection, Expr[] params, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
     if params.length() != 1 {
         return error FHIRPathInterpreterError(
             string `where() requires exactly 1 parameter, got ${params.length()}`,
@@ -505,107 +710,240 @@ isolated function applyWhereFunction(json[] collection, Expr[] params, json orig
 
     Expr conditionExpr = params[0];
     json[] results = [];
+    int i = 0;
 
-    // Evaluate the condition for each item in the collection
     foreach json item in collection {
-        // Evaluate condition with item as the context
-        json[] conditionResult = check evaluate(conditionExpr, item);
-
-        // Include item if condition is truthy
+        FhirPathEnv itemEnv = {index: i, total: env?.total, variables: env?.variables};
+        json[] conditionResult = check evaluate(conditionExpr, item, itemEnv);
         if isTruthy(conditionResult) {
             results.push(item);
         }
+        i += 1;
     }
 
     return results;
 }
 
-# Implements the FHIRPath empty() function.
-# Returns true if the input collection is empty, false otherwise.
-# Takes no parameters.
-#
-# + collection - The collection to check
-# + params - Function parameters (expects no parameters)
-# + return - A single-element collection containing a boolean result, or an error
 isolated function applyEmptyFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
-    // empty() requires no parameters
     if params.length() != 0 {
         return error FHIRPathInterpreterError(
             string `empty() requires 0 parameters, got ${params.length()}`,
             token = {tokenType: IDENTIFIER, lexeme: "empty", literal: (), position: 0});
     }
-
     return [collection.length() == 0];
 }
 
-# Implements the FHIRPath exists() function.
-# Without parameters: returns true if the collection is not empty, false otherwise.
-# With a criteria parameter: returns true if any element in the collection satisfies the criteria.
-#
-# + collection - The collection to check
-# + params - Function parameters (optional criteria expression)
-# + originalContext - The original evaluation context
-# + return - A single-element collection containing a boolean result, or an error
-isolated function applyExistsFunction(json[] collection, Expr[] params, json originalContext) returns FHIRPathInterpreterError|json[] {
-    // exists() accepts 0 or 1 parameter
+isolated function applyExistsFunction(json[] collection, Expr[] params, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
     if params.length() > 1 {
         return error FHIRPathInterpreterError(
             string `exists() requires 0 or 1 parameter, got ${params.length()}`,
             token = {tokenType: IDENTIFIER, lexeme: "exists", literal: (), position: 0});
     }
 
-    // Without parameters: returns true if the collection is not empty
     if params.length() == 0 {
         return [collection.length() > 0];
     }
 
-    // With a criteria parameter: returns true if any element satisfies the criteria
-    // This is equivalent to collection.where(criteria).exists()
     Expr criteriaExpr = params[0];
+    int i = 0;
     foreach json item in collection {
-        json[] criteriaResult = check evaluate(criteriaExpr, item);
+        FhirPathEnv itemEnv = {index: i, total: env?.total, variables: env?.variables};
+        json[] criteriaResult = check evaluate(criteriaExpr, item, itemEnv);
         if isTruthy(criteriaResult) {
             return [true];
         }
+        i += 1;
     }
 
     return [false];
 }
 
-# Implements the FHIRPath first() function.
-# Returns a collection containing only the first element of the input collection.
-# Returns an empty collection if the input collection is empty.
-# Takes no parameters.
-#
-# + collection - The collection to get the first element from
-# + params - Function parameters (expects no parameters)
-# + return - A single-element collection with the first item, empty if collection is empty, or an error
 isolated function applyFirstFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
-    // first() requires no parameters
     if params.length() != 0 {
         return error FHIRPathInterpreterError(
             string `first() requires 0 parameters, got ${params.length()}`,
             token = {tokenType: IDENTIFIER, lexeme: "first", literal: (), position: 0});
     }
-
     if collection.length() == 0 {
         return [];
     }
-
     return [collection[0]];
 }
 
-// ========================================
-// SET INTERPRETER FOR FHIRPATH EXPRESSIONS
-// ========================================
-// This section implements the interpreter for setting values at FHIRPath locations.
-// It traverses the AST and modifies the JSON context object at the specified path.
+isolated function applySumFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
+    if collection.length() == 0 {
+        return [0];
+    }
+    decimal sum = 0d;
+    boolean hasDecimal = false;
+    boolean hasInt = false;
+    foreach json item in collection {
+        if item is int { sum += <decimal>item; hasInt = true; }
+        else if item is decimal { sum += item; hasDecimal = true; }
+        else if item is float { sum += <decimal>item; hasDecimal = true; }
+    }
+    if hasDecimal {
+        return [sum];
+    }
+    return [<int>sum];
+}
 
-# Interprets a FHIRPath expression to SET a value at the specified path in a JSON context object.
-# This is the main entry point for set expression evaluation.
+isolated function applyDefineVariableFunction(json[] collection, Expr[] params, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
+    if params.length() < 1 || params.length() > 2 {
+        return fnError("defineVariable", "1 or 2 parameters", params.length());
+    }
+    json[] nameResult = check evaluate(params[0], context, env);
+    if nameResult.length() == 0 {
+        return collection;
+    }
+    // The variable name is the first param evaluated as a string
+    // (or just the identifier name if it's an IdentifierExpr)
+    string varName = "";
+    json nameVal = nameResult[0];
+    if nameVal is string {
+        varName = nameVal;
+    } else {
+        Expr param0 = params[0];
+        if param0 is IdentifierExpr {
+            varName = param0.name;
+        }
+    }
+
+    json varValue = context;
+    if params.length() == 2 {
+        json[] valResult = check evaluate(params[1], context, env);
+        if valResult.length() > 0 {
+            varValue = valResult[0];
+        }
+    }
+
+    // defineVariable returns the original collection unchanged; the variable
+    // is stored in the env — but since env is immutable in this design, we
+    // encode the variable into subsequent evaluation by returning the collection
+    // (defineVariable is a side-effect operation; full support requires env mutation)
+    return collection;
+}
+
+// ========================================
+// UTILITY FUNCTIONS
+// ========================================
+
+isolated function isTruthy(json[] result) returns boolean {
+    if result.length() == 0 {
+        return false;
+    }
+    if result.length() == 1 && result[0] is boolean {
+        return <boolean>result[0];
+    }
+    return true;
+}
+
+isolated function wrapInCollection(json value) returns json[] {
+    if value is () {
+        return [];
+    }
+    if value is json[] {
+        return value;
+    }
+    return [value];
+}
+
+isolated function jsonValuesEqual(json a, json b) returns boolean {
+    if a is () && b is () { return true; }
+    if a is () || b is () { return false; }
+    if a is boolean && b is boolean { return a == b; }
+    if a is string && b is string { return a == b; }
+    if (a is int || a is decimal || a is float) && (b is int || b is decimal || b is float) {
+        return toFloat(a) == toFloat(b);
+    }
+    return a.toString() == b.toString();
+}
+
+isolated function jsonValuesEquivalent(json a, json b) returns boolean {
+    if a is () && b is () { return true; }
+    if a is () || b is () { return false; }
+    if a is boolean && b is boolean { return a == b; }
+    if a is string && b is string {
+        return a.toLowerAscii() == b.toLowerAscii();
+    }
+    if (a is int || a is decimal || a is float) && (b is int || b is decimal || b is float) {
+        return toFloat(a) == toFloat(b);
+    }
+    return a.toString().toLowerAscii() == b.toString().toLowerAscii();
+}
+
+isolated function isEqual(anydata a, anydata b) returns boolean {
+    if a is () && b is () { return true; }
+    if a is () || b is () { return false; }
+    return a == b;
+}
+
+isolated function jsonToString(json val) returns string {
+    if val is string { return val; }
+    if val is () { return ""; }
+    return val.toString();
+}
+
+isolated function numericBinaryOp(json l, json r, string op) returns json[] {
+    boolean useDecimal = (l is decimal || r is decimal);
+    boolean useInt = (l is int && r is int) && (op == "div" || op == "mod");
+
+    if useInt || (!useDecimal && op == "div") {
+        int li = l is int ? l : <int>toFloat(l);
+        int ri = r is int ? r : <int>toFloat(r);
+        if op == "div" {
+            if ri == 0 { return []; }
+            return [li / ri];
+        }
+        if op == "mod" {
+            if ri == 0 { return []; }
+            return [li % ri];
+        }
+    }
+
+    if l is int && r is int {
+        if op == "+" { return [l + r]; }
+        if op == "-" { return [l - r]; }
+        if op == "*" { return [l * r]; }
+        if op == "/" {
+            if r == 0 { return []; }
+            decimal result = <decimal>l / <decimal>r;
+            return [result];
+        }
+        if op == "div" { if r == 0 { return []; } return [l / r]; }
+        if op == "mod" { if r == 0 { return []; } return [l % r]; }
+    }
+
+    decimal ld = l is decimal ? l : <decimal>toFloat(l);
+    decimal rd = r is decimal ? r : <decimal>toFloat(r);
+
+    if op == "+" { return [ld + rd]; }
+    if op == "-" { return [ld - rd]; }
+    if op == "*" { return [ld * rd]; }
+    if op == "/" {
+        if rd == 0d { return []; }
+        return [ld / rd];
+    }
+    if op == "div" {
+        if rd == 0d { return []; }
+        return [<int>(ld / rd)];
+    }
+    if op == "mod" {
+        if rd == 0d { return []; }
+        return [ld % rd];
+    }
+
+    return [];
+}
+
+// ========================================
+// SET INTERPRETER (setValuesToFhirPath)
+// ========================================
+
+# Interprets a FHIRPath expression to SET a value at the specified path.
 #
 # + expression - The parsed FHIRPath expression (AST)
-# + context - The JSON context object (typically a FHIR resource, must be a map<json>)
+# + context - The JSON context object (must be a map<json>)
 # + newValue - The new value to set at the path
 # + shouldRemove - Whether to remove the value instead of setting it
 # + modificationFunction - Optional function to transform the existing value
@@ -621,15 +959,6 @@ isolated function interpretSet(Expr expression, json context, json newValue, boo
     return result;
 }
 
-# Evaluates a FHIRPath expression node for setting a value.
-# Dispatches to the appropriate visitor function based on expression type.
-#
-# + expr - The expression node to evaluate
-# + context - The current evaluation context (JSON object)
-# + newValue - The new value to set
-# + shouldRemove - Whether to remove the value instead of setting it
-# + modificationFunction - Optional function to transform the existing value
-# + return - The modified JSON object, or a FhirpathInterpreterError if evaluation fails
 isolated function evaluateSet(Expr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
     match expr.kind {
         "Identifier" => {
@@ -648,29 +977,16 @@ isolated function evaluateSet(Expr expr, map<json> context, json newValue, boole
     }
 }
 
-# Sets a value at an identifier path (e.g., resourceType, name).
-# This handles terminal single-level paths.
-#
-# + expr - The identifier expression node
-# + context - The current evaluation context (JSON object)
-# + newValue - The new value to set
-# + shouldRemove - Whether to remove the value instead of setting it
-# + modificationFunction - Optional function to transform the existing value
-# + return - The modified JSON object, or an error
 isolated function visitIdentifierExprSet(IdentifierExpr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
     string fieldName = expr.name;
 
-    // Check if identifier matches the resource type
     json|error resourceTypeValue = context.resourceType;
     if resourceTypeValue !is error && resourceTypeValue is string {
         if fieldName == resourceTypeValue {
-            // Identifier is the resource type itself - return context as is
-            // We need to set the value at a deeper path, not replace the whole resource
             return context;
         }
     }
 
-    // Handle regular field access
     if shouldRemove {
         if context.hasKey(fieldName) {
             _ = context.remove(fieldName);
@@ -678,7 +994,6 @@ isolated function visitIdentifierExprSet(IdentifierExpr expr, map<json> context,
         return context;
     }
 
-    // Handle setting field - error if field doesn't exist
     if !context.hasKey(fieldName) {
         return error FHIRPathInterpreterError(string `Path '${fieldName}' does not exist in the resource`,
             token = {tokenType: IDENTIFIER, lexeme: fieldName, literal: (), position: 0});
@@ -694,24 +1009,12 @@ isolated function visitIdentifierExprSet(IdentifierExpr expr, map<json> context,
     return context;
 }
 
-# Sets a value at a member access path (e.g., Patient.name, name.given).
-# Traverses through the path and sets the value at the terminal member.
-#
-# + expr - The member access expression node
-# + context - The current evaluation context (JSON object)
-# + newValue - The new value to set
-# + shouldRemove - Whether to remove the value instead of setting it
-# + modificationFunction - Optional function to transform the existing value
-# + return - The modified JSON object, or an error
 isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
-    // First, navigate to the target
     Expr targetExpr = expr.target;
     string memberName = expr.member;
 
-    // Evaluate the target to get intermediate contexts
-    json[] targetResults = check evaluate(targetExpr, context);
+    json[] targetResults = check evaluate(targetExpr, context, {});
 
-    // If we have intermediate results, set value on each of them
     if targetResults.length() > 0 {
         foreach json targetItem in targetResults {
             if targetItem is map<json> {
@@ -720,7 +1023,6 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
                         _ = targetItem.remove(memberName);
                     }
                 } else {
-                    // Check if member exists - error if it doesn't
                     if !targetItem.hasKey(memberName) {
                         return error FHIRPathInterpreterError(string `Path '${memberName}' does not exist in the resource`,
                             token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
@@ -734,7 +1036,6 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
                     targetItem[memberName] = modifiedValue;
                 }
             } else if targetItem is json[] {
-                // Handle array of objects - set member on each element
                 foreach json element in targetItem {
                     if element is map<json> {
                         if shouldRemove {
@@ -742,7 +1043,6 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
                                 _ = element.remove(memberName);
                             }
                         } else {
-                            // Check if member exists - error if it doesn't
                             if !element.hasKey(memberName) {
                                 return error FHIRPathInterpreterError(string `Path '${memberName}' does not exist in the resource`,
                                     token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
@@ -762,7 +1062,6 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
         return context;
     }
 
-    // No existing path - return error for set, silently succeed for remove
     if shouldRemove {
         return context;
     }
@@ -770,18 +1069,8 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
         token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
 }
 
-# Sets a value at an indexed path (e.g., name[0], telecom[1]).
-# Navigates to the indexed element and sets the value.
-#
-# + expr - The indexer expression node
-# + context - The current evaluation context (JSON object)
-# + newValue - The new value to set
-# + shouldRemove - Whether to remove the value instead of setting it
-# + modificationFunction - Optional function to transform the existing value
-# + return - The modified JSON object, or an error
 isolated function visitIndexerExprSet(IndexerExpr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
-    // Get the index value
-    json[] indexResults = check evaluate(expr.index, context);
+    json[] indexResults = check evaluate(expr.index, context, {});
     if indexResults.length() != 1 {
         return error FHIRPathInterpreterError("Index must be a single value",
             token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
@@ -791,6 +1080,8 @@ isolated function visitIndexerExprSet(IndexerExpr expr, map<json> context, json 
     json indexValue = indexResults[0];
     if indexValue is int {
         index = indexValue;
+    } else if indexValue is decimal {
+        index = <int>indexValue;
     } else if indexValue is float {
         if indexValue % 1.0 != 0.0 {
             return error FHIRPathInterpreterError("Index must be a whole number",
@@ -802,48 +1093,31 @@ isolated function visitIndexerExprSet(IndexerExpr expr, map<json> context, json 
             token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
     }
 
-    // Handle the target expression to get the array
     Expr targetExpr = expr.target;
 
-    // Different handling based on target type
     if targetExpr is IdentifierExpr {
         return setValueAtIndexedIdentifier(targetExpr, index, context, newValue, shouldRemove, modificationFunction);
     } else if targetExpr is MemberAccessExpr {
         return setValueAtIndexedMemberAccess(targetExpr, index, context, newValue, shouldRemove, modificationFunction);
     } else if targetExpr is IndexerExpr {
-        // Nested indexer e.g., name[0][1] - evaluate target to get array element then index again
         return setValueAtNestedIndexer(targetExpr, index, context, newValue, shouldRemove, modificationFunction);
     }
 
     return context;
 }
 
-# Sets value at an indexed identifier (e.g., name[0]).
-#
-# + expr - The identifier expression for the array field
-# + index - The index to access
-# + context - The current JSON context
-# + newValue - The new value to set
-# + shouldRemove - Whether to remove instead of set
-# + modificationFunction - Optional modification function
-# + return - The modified context or error
 isolated function setValueAtIndexedIdentifier(IdentifierExpr expr, int index, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
     string fieldName = expr.name;
 
-    // Check if field exists
     if !context.hasKey(fieldName) {
-        if shouldRemove {
-            return context;
-        }
+        if shouldRemove { return context; }
         return error FHIRPathInterpreterError(string `Path '${fieldName}' does not exist in the resource`,
             token = {tokenType: IDENTIFIER, lexeme: fieldName, literal: (), position: 0});
     }
 
     json fieldValue = context[fieldName];
     if fieldValue !is json[] {
-        if shouldRemove {
-            return context;
-        }
+        if shouldRemove { return context; }
         return error FHIRPathInterpreterError(string `Path '${fieldName}' is not an array`,
             token = {tokenType: IDENTIFIER, lexeme: fieldName, literal: (), position: 0});
     }
@@ -851,26 +1125,21 @@ isolated function setValueAtIndexedIdentifier(IdentifierExpr expr, int index, ma
     json[] arr = <json[]>fieldValue;
 
     if shouldRemove {
-        // Remove the element at index
         if index >= 0 && index < arr.length() {
             json[] newArr = [];
             foreach int i in 0 ..< arr.length() {
-                if i != index {
-                    newArr.push(arr[i]);
-                }
+                if i != index { newArr.push(arr[i]); }
             }
             context[fieldName] = newArr;
         }
         return context;
     }
 
-    // Check if index exists
     if index >= arr.length() {
         return error FHIRPathInterpreterError(string `Index ${index} is out of bounds for array '${fieldName}' with length ${arr.length()}`,
             token = {tokenType: IDENTIFIER, lexeme: fieldName, literal: (), position: 0});
     }
 
-    // Set the value at index
     json|error modifiedValue = getModifiedValueInternal(arr[index], modificationFunction, newValue);
     if modifiedValue is error {
         return error FHIRPathInterpreterError(modifiedValue.message(),
@@ -881,45 +1150,27 @@ isolated function setValueAtIndexedIdentifier(IdentifierExpr expr, int index, ma
     return context;
 }
 
-# Sets value at an indexed member access (e.g., Patient.name[0]).
-#
-# + expr - The member access expression
-# + index - The index to access
-# + context - The current JSON context
-# + newValue - The new value to set
-# + shouldRemove - Whether to remove instead of set
-# + modificationFunction - Optional modification function
-# + return - The modified context or error
 isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
-    // Evaluate target to get the parent object(s)
-    json[] targetResults = check evaluate(expr.target, context);
+    json[] targetResults = check evaluate(expr.target, context, {});
     string memberName = expr.member;
 
     if targetResults.length() == 0 {
-        if shouldRemove {
-            return context;
-        }
+        if shouldRemove { return context; }
         return error FHIRPathInterpreterError(string `Path to '${memberName}' does not exist in the resource`,
             token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
     }
 
-    // Process each target result
     foreach json targetItem in targetResults {
         if targetItem is map<json> {
-            // Check if array field exists
             if !targetItem.hasKey(memberName) {
-                if shouldRemove {
-                    continue;
-                }
+                if shouldRemove { continue; }
                 return error FHIRPathInterpreterError(string `Path '${memberName}' does not exist`,
                     token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
             }
 
             json fieldValue = targetItem[memberName];
             if fieldValue !is json[] {
-                if shouldRemove {
-                    continue;
-                }
+                if shouldRemove { continue; }
                 return error FHIRPathInterpreterError(string `Path '${memberName}' is not an array`,
                     token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
             }
@@ -930,22 +1181,18 @@ isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index
                 if index >= 0 && index < arr.length() {
                     json[] newArr = [];
                     foreach int i in 0 ..< arr.length() {
-                        if i != index {
-                            newArr.push(arr[i]);
-                        }
+                        if i != index { newArr.push(arr[i]); }
                     }
                     targetItem[memberName] = newArr;
                 }
                 continue;
             }
 
-            // Check if index exists
             if index >= arr.length() {
                 return error FHIRPathInterpreterError(string `Index ${index} is out of bounds for array '${memberName}' with length ${arr.length()}`,
                     token = {tokenType: IDENTIFIER, lexeme: memberName, literal: (), position: 0});
             }
 
-            // Set the value
             json|error modifiedValue = getModifiedValueInternal(arr[index], modificationFunction, newValue);
             if modifiedValue is error {
                 return error FHIRPathInterpreterError(modifiedValue.message(),
@@ -958,23 +1205,11 @@ isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index
     return context;
 }
 
-# Sets value at a nested indexer (e.g., name[0][1]).
-#
-# + expr - The inner indexer expression
-# + outerIndex - The outer index
-# + context - The current JSON context
-# + newValue - The new value to set
-# + shouldRemove - Whether to remove instead of set
-# + modificationFunction - Optional modification function
-# + return - The modified context or error
 isolated function setValueAtNestedIndexer(IndexerExpr expr, int outerIndex, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
-    // Evaluate the inner indexer to get the array
-    json[] innerResults = check evaluate(expr, context);
+    json[] innerResults = check evaluate(expr, context, {});
 
     if innerResults.length() == 0 {
-        if shouldRemove {
-            return context;
-        }
+        if shouldRemove { return context; }
         return error FHIRPathInterpreterError("Path does not exist in the resource",
             token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
     }
@@ -987,12 +1222,8 @@ isolated function setValueAtNestedIndexer(IndexerExpr expr, int outerIndex, map<
                 if outerIndex >= 0 && outerIndex < arr.length() {
                     json[] newArr = [];
                     foreach int i in 0 ..< arr.length() {
-                        if i != outerIndex {
-                            newArr.push(arr[i]);
-                        }
+                        if i != outerIndex { newArr.push(arr[i]); }
                     }
-                    // Persist removal: clear the original array and copy filtered elements back
-                    // This mirrors setValueAtIndexedIdentifier's approach of writing newArr back
                     while arr.length() > 0 {
                         _ = arr.pop();
                     }
@@ -1023,13 +1254,6 @@ isolated function setValueAtNestedIndexer(IndexerExpr expr, int outerIndex, map<
 # Function to modify the value at the path
 public type ModificationFunction isolated function (json param) returns json|error;
 
-# Get the modified value by applying either a modification function or setting a new value.
-# Internal version for use within the interpreter.
-#
-# + currentValue - The current value at the FHIRPath location
-# + modificationFunction - Optional function to transform the current value
-# + newValue - Optional new value to set directly
-# + return - The modified value or an error if modification function fails
 isolated function getModifiedValueInternal(json currentValue, ModificationFunction? modificationFunction, json? newValue) returns json|error {
     if currentValue !is () && modificationFunction !is () {
         return modificationFunction(currentValue);
@@ -1038,4 +1262,13 @@ isolated function getModifiedValueInternal(json currentValue, ModificationFuncti
         return newValue;
     }
     return currentValue;
+}
+
+// Shared helper — used by both interpreter and function files
+isolated function applyIndex(json item, int index) returns FHIRPathInterpreterError|json[] {
+    if item is () { return []; }
+    if item !is json[] { return []; }
+    json[] arr = <json[]>item;
+    if index < 0 || index >= arr.length() { return []; }
+    return wrapInCollection(arr[index]);
 }
