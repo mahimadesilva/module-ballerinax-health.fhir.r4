@@ -98,8 +98,34 @@ isolated function applyConformsToFunction(json[] collection, Expr[] params, json
     if params.length() != 1 {
         return fnError("conformsTo", "1 parameter", params.length());
     }
-    // Stub: without a terminology service we cannot validate conformance
-    return [true];
+    json[] urlResult = check evaluate(params[0], context, env);
+    if urlResult.length() == 0 {
+        return [];
+    }
+    json urlVal = urlResult[0];
+    if urlVal !is string {
+        return [];
+    }
+    string url = urlVal;
+
+    // Only handle HL7 FHIR StructureDefinition URLs for basic conformance check
+    string sdPrefix = "http://hl7.org/fhir/StructureDefinition/";
+    if !url.startsWith(sdPrefix) {
+        return error FHIRPathInterpreterError(string `conformsTo() unsupported profile URL: ${url}`,
+            token = {tokenType: IDENTIFIER, lexeme: "conformsTo", literal: (), position: 0});
+    }
+
+    string profileResourceType = url.substring(sdPrefix.length());
+
+    foreach json item in collection {
+        if item is map<json> {
+            json|error rt = item["resourceType"];
+            if rt is string && rt == profileResourceType {
+                return [true];
+            }
+        }
+    }
+    return [false];
 }
 
 # Implements the FHIRPath memberOf() function.

@@ -142,11 +142,16 @@ isolated function visitIdentifierExpr(IdentifierExpr expr, json context, FhirPat
             }
         }
 
-        if !context.hasKey(fieldName) {
-            return [];
+        if context.hasKey(fieldName) {
+            json fieldValue = context[fieldName];
+            return wrapInCollection(fieldValue);
         }
-        json fieldValue = context[fieldName];
-        return wrapInCollection(fieldValue);
+        // FHIR polymorphic type access: "value" matches "valueQuantity", "valueString", etc.
+        json[] polyResults = fhirPolymorphicAccess(context, fieldName);
+        if polyResults.length() > 0 {
+            return polyResults;
+        }
+        return [];
     }
 
     return [];
@@ -171,11 +176,16 @@ isolated function accessMember(json item, string memberName) returns FHIRPathInt
         return [];
     }
     if item is map<json> {
-        if !item.hasKey(memberName) {
-            return [];
+        if item.hasKey(memberName) {
+            json fieldValue = item[memberName];
+            return wrapInCollection(fieldValue);
         }
-        json fieldValue = item[memberName];
-        return wrapInCollection(fieldValue);
+        // FHIR polymorphic type access: "value" matches "valueQuantity", etc.
+        json[] polyResults = fhirPolymorphicAccess(item, memberName);
+        if polyResults.length() > 0 {
+            return polyResults;
+        }
+        return [];
     }
     if item is json[] {
         json[] results = [];
@@ -188,6 +198,23 @@ isolated function accessMember(json item, string memberName) returns FHIRPathInt
         return results;
     }
     return [];
+}
+
+// Returns values matching FHIR choice-type fields (e.g. "value" matches "valueQuantity")
+isolated function fhirPolymorphicAccess(map<json> obj, string fieldName) returns json[] {
+    json[] results = [];
+    string prefix = fieldName;
+    foreach string key in obj.keys() {
+        if key.length() > prefix.length() && key.startsWith(prefix) {
+            string nextChar = key.substring(prefix.length(), prefix.length() + 1);
+            // The next character after fieldName must be uppercase (FHIR polymorphic convention)
+            if nextChar >= "A" && nextChar <= "Z" {
+                json val = obj[key];
+                results.push(val);
+            }
+        }
+    }
+    return results;
 }
 
 isolated function visitIndexerExpr(IndexerExpr expr, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
@@ -350,13 +377,16 @@ isolated function applyEqualityOperator(json[] left, json[] right, boolean check
         return [];
     }
     if left.length() == 1 && right.length() == 1 {
-        boolean areEqual = jsonValuesEqual(left[0], right[0]);
+        boolean? areEqual = jsonValuesEqual(left[0], right[0]);
+        if areEqual is () { return []; }
         return checkEqual ? [areEqual] : [!areEqual];
     }
     if left.length() == right.length() {
         boolean allEqual = true;
         foreach int i in 0 ..< left.length() {
-            if !jsonValuesEqual(left[i], right[i]) {
+            boolean? eq = jsonValuesEqual(left[i], right[i]);
+            if eq is () { return []; }
+            if !eq {
                 allEqual = false;
                 break;
             }
@@ -376,14 +406,40 @@ isolated function applyEquivalenceOperator(json[] left, json[] right, boolean ch
     if left.length() != right.length() {
         return [!checkEquivalent];
     }
-    boolean allEquiv = true;
-    foreach int i in 0 ..< left.length() {
-        if !jsonValuesEquivalent(left[i], right[i]) {
-            allEquiv = false;
+    // Multi-element equivalence is set-based (order-independent):
+    // every element in left must have an equivalent in right, and vice versa.
+    boolean allLeftInRight = true;
+    foreach json lItem in left {
+        boolean found = false;
+        foreach json rItem in right {
+            if jsonValuesEquivalent(lItem, rItem) {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            allLeftInRight = false;
             break;
         }
     }
-    return checkEquivalent ? [allEquiv] : [!allEquiv];
+    boolean allRightInLeft = true;
+    if allLeftInRight {
+        foreach json rItem in right {
+            boolean found = false;
+            foreach json lItem in left {
+                if jsonValuesEquivalent(rItem, lItem) {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                allRightInLeft = false;
+                break;
+            }
+        }
+    }
+    boolean equiv = allLeftInRight && allRightInLeft;
+    return checkEquivalent ? [equiv] : [!equiv];
 }
 
 isolated function applyAndOperator(json[] left, json[] right) returns json[] {
@@ -534,7 +590,8 @@ isolated function applyInOperator(json[] left, json[] right) returns json[] {
     // For single-element left: true if left[0] is in right
     if left.length() == 1 {
         foreach json item in right {
-            if jsonValuesEqual(left[0], item) {
+            boolean? eq = jsonValuesEqual(left[0], item);
+            if eq == true {
                 return [true];
             }
         }
@@ -544,7 +601,8 @@ isolated function applyInOperator(json[] left, json[] right) returns json[] {
     foreach json leftItem in left {
         boolean found = false;
         foreach json rightItem in right {
-            if jsonValuesEqual(leftItem, rightItem) {
+            boolean? eq = jsonValuesEqual(leftItem, rightItem);
+            if eq == true {
                 found = true;
                 break;
             }
@@ -588,9 +646,30 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context, FhirPathEnv
     // ---- Subsetting ----
     if name == "first" { return applyFirstFunction(targetResults, params); }
     if name == "last" { return applyLastFunction(targetResults, params); }
-    if name == "tail" { return applyTailFunction(targetResults, params); }
-    if name == "skip" { return applySkipFunction(targetResults, params, context, env); }
-    if name == "take" { return applyTakeFunction(targetResults, params, context, env); }
+    if name == "tail" {
+        Expr? te = expr.target;
+        if te is FunctionExpr && (te.name == "children" || te.name == "descendants") {
+            return error FHIRPathInterpreterError("tail() cannot be applied to an unordered collection from children() or descendants()",
+                token = {tokenType: IDENTIFIER, lexeme: name, literal: (), position: 0});
+        }
+        return applyTailFunction(targetResults, params);
+    }
+    if name == "skip" {
+        Expr? te = expr.target;
+        if te is FunctionExpr && (te.name == "children" || te.name == "descendants") {
+            return error FHIRPathInterpreterError("skip() cannot be applied to an unordered collection from children() or descendants()",
+                token = {tokenType: IDENTIFIER, lexeme: name, literal: (), position: 0});
+        }
+        return applySkipFunction(targetResults, params, context, env);
+    }
+    if name == "take" {
+        Expr? te = expr.target;
+        if te is FunctionExpr && (te.name == "children" || te.name == "descendants") {
+            return error FHIRPathInterpreterError("take() cannot be applied to an unordered collection from children() or descendants()",
+                token = {tokenType: IDENTIFIER, lexeme: name, literal: (), position: 0});
+        }
+        return applyTakeFunction(targetResults, params, context, env);
+    }
     if name == "single" { return applySingleFunction(targetResults, params); }
 
     // ---- Aggregation ----
@@ -649,6 +728,8 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context, FhirPathEnv
     if name == "decode" { return applyEncodeDecodeFunction("decode", targetResults, params, context, env); }
     if name == "escape" { return applyEscapeUnescapeFunction("escape", targetResults, params, context, env); }
     if name == "unescape" { return applyEscapeUnescapeFunction("unescape", targetResults, params, context, env); }
+    if name == "upper" { return applyUpperFunction(targetResults, params); }
+    if name == "lower" { return applyLowerFunction(targetResults, params); }
 
     // ---- Type conversion ----
     if name == "toInteger" { return applyToIntegerFunction(targetResults, params); }
@@ -848,13 +929,22 @@ isolated function wrapInCollection(json value) returns json[] {
     return [value];
 }
 
-isolated function jsonValuesEqual(json a, json b) returns boolean {
+// Returns boolean? where () means "unknown" (e.g. incomparable datetime types)
+isolated function jsonValuesEqual(json a, json b) returns boolean? {
     if a is () && b is () { return true; }
     if a is () || b is () { return false; }
     if a is boolean && b is boolean { return a == b; }
-    if a is string && b is string { return a == b; }
+    if a is string && b is string {
+        if a.startsWith("@") || b.startsWith("@") {
+            return compareDateTimeEqual(a, b);
+        }
+        return a == b;
+    }
     if (a is int || a is decimal || a is float) && (b is int || b is decimal || b is float) {
         return toFloat(a) == toFloat(b);
+    }
+    if a is map<json> && b is map<json> {
+        return compareQuantityValues(a, b);
     }
     return a.toString() == b.toString();
 }
@@ -864,12 +954,246 @@ isolated function jsonValuesEquivalent(json a, json b) returns boolean {
     if a is () || b is () { return false; }
     if a is boolean && b is boolean { return a == b; }
     if a is string && b is string {
+        if a.startsWith("@") || b.startsWith("@") {
+            return compareDateTimeEquivalent(a, b);
+        }
         return a.toLowerAscii() == b.toLowerAscii();
     }
     if (a is int || a is decimal || a is float) && (b is int || b is decimal || b is float) {
+        if a is decimal || b is decimal {
+            decimal ad = a is decimal ? a : <decimal>toFloat(a);
+            decimal bd = b is decimal ? b : <decimal>toFloat(b);
+            return decimalsEquivalent(ad, bd);
+        }
         return toFloat(a) == toFloat(b);
     }
+    if a is map<json> && b is map<json> {
+        return compareQuantityValuesEquivalent(a, b);
+    }
     return a.toString().toLowerAscii() == b.toString().toLowerAscii();
+}
+
+// ========================================
+// DATETIME COMPARISON HELPERS
+// ========================================
+
+isolated function fhirDateType(string s) returns string {
+    if !s.startsWith("@") { return "other"; }
+    string t = s.substring(1);
+    if t.startsWith("T") { return "time"; }
+    if t.includes("T") { return "datetime"; }
+    return "date";
+}
+
+isolated function datetimeHasTimezone(string s) returns boolean {
+    if !s.startsWith("@") { return false; }
+    string t = s.substring(1);
+    int? tIdx = t.indexOf("T");
+    if tIdx is () { return false; }
+    string timePart = t.substring(<int>tIdx + 1);
+    if timePart.endsWith("Z") { return true; }
+    // Look for +/- after the time digits (position >= 6 handles HH:MM:SS)
+    foreach int i in 6 ..< timePart.length() {
+        string ch = timePart.substring(i, i + 1);
+        if ch == "+" || ch == "-" { return true; }
+    }
+    return false;
+}
+
+// Strips trailing all-zero fractional seconds and returns the normalized string
+isolated function normalizeDateTimeNoTz(string s) returns string {
+    string result = s;
+    int? dotIdx = result.lastIndexOf(".");
+    if dotIdx is int {
+        string frac = result.substring(<int>dotIdx + 1);
+        boolean allZero = frac.length() > 0;
+        foreach int i in 0 ..< frac.length() {
+            if frac.substring(i, i + 1) != "0" {
+                allZero = false;
+                break;
+            }
+        }
+        if allZero {
+            result = result.substring(0, <int>dotIdx);
+        }
+    }
+    return result;
+}
+
+// Converts @YYYY-MM-DDTHH:MM:SS[.sss][Z|+HH:MM|-HH:MM] to total UTC minutes for comparison.
+// Returns () if the string has no timezone.
+isolated function datetimeToUTCMinutes(string s) returns int? {
+    if !s.startsWith("@") { return (); }
+    string t = s.substring(1);
+    if t.length() < 19 || t.substring(10, 11) != "T" { return (); }
+    int|error yr = int:fromString(t.substring(0, 4));
+    int|error mo = int:fromString(t.substring(5, 7));
+    int|error dy = int:fromString(t.substring(8, 10));
+    int|error hr = int:fromString(t.substring(11, 13));
+    int|error mn = int:fromString(t.substring(14, 16));
+    int|error sc = int:fromString(t.substring(17, 19));
+    if yr is error || mo is error || dy is error || hr is error || mn is error || sc is error { return (); }
+
+    string suffix = t.length() > 19 ? t.substring(19) : "";
+    // Skip fractional seconds
+    if suffix.startsWith(".") {
+        int i = 1;
+        while i < suffix.length() {
+            string ch = suffix.substring(i, i + 1);
+            if ch == "+" || ch == "-" || ch == "Z" { break; }
+            i += 1;
+        }
+        suffix = i < suffix.length() ? suffix.substring(i) : "";
+    }
+    int tzMinutes;
+    if suffix == "Z" {
+        tzMinutes = 0;
+    } else if suffix.length() >= 6 && (suffix.startsWith("+") || suffix.startsWith("-")) {
+        int|error tzHr = int:fromString(suffix.substring(1, 3));
+        int|error tzMn = int:fromString(suffix.substring(4, 6));
+        if tzHr is error || tzMn is error { return (); }
+        int offset = <int>tzHr * 60 + <int>tzMn;
+        tzMinutes = suffix.startsWith("+") ? offset : -offset;
+    } else {
+        return (); // No timezone
+    }
+    // UTC = local - offset; use approximate month-days for ordering only
+    int total = <int>yr * 525960 + <int>mo * 44640 + <int>dy * 1440 + <int>hr * 60 + <int>mn - tzMinutes;
+    return total;
+}
+
+// FHIRPath equality for date/time strings (returns () for unknown)
+isolated function compareDateTimeEqual(string a, string b) returns boolean? {
+    string kindA = fhirDateType(a);
+    string kindB = fhirDateType(b);
+    if kindA != kindB { return (); } // Different types → unknown
+
+    if kindA == "date" {
+        return a == b;
+    }
+    if kindA == "datetime" {
+        boolean aTz = datetimeHasTimezone(a);
+        boolean bTz = datetimeHasTimezone(b);
+        if aTz != bTz { return (); } // One has TZ, other doesn't → unknown
+        if aTz && bTz {
+            int? aMin = datetimeToUTCMinutes(a);
+            int? bMin = datetimeToUTCMinutes(b);
+            if aMin is () || bMin is () { return (); }
+            return aMin == bMin;
+        }
+        return normalizeDateTimeNoTz(a) == normalizeDateTimeNoTz(b);
+    }
+    if kindA == "time" {
+        return normalizeDateTimeNoTz(a) == normalizeDateTimeNoTz(b);
+    }
+    return a == b;
+}
+
+// FHIRPath equivalence for date/time strings (returns false for different types, not unknown)
+isolated function compareDateTimeEquivalent(string a, string b) returns boolean {
+    string kindA = fhirDateType(a);
+    string kindB = fhirDateType(b);
+    if kindA != kindB { return false; } // Different types → not equivalent
+
+    if kindA == "date" {
+        return a == b;
+    }
+    if kindA == "datetime" || kindA == "time" {
+        // Equivalence ignores timezones — normalize by stripping TZ and sub-second zeros
+        return normalizeDateTimeNoTz(stripTimezone(a)) == normalizeDateTimeNoTz(stripTimezone(b));
+    }
+    return a == b;
+}
+
+// Strips timezone suffix from a datetime string for equivalence comparison
+isolated function stripTimezone(string s) returns string {
+    if !s.startsWith("@") { return s; }
+    string t = s.substring(1);
+    int? tIdx = t.indexOf("T");
+    if tIdx is () { return s; }
+    string timePart = t.substring(<int>tIdx + 1);
+    // Find where timezone starts (Z or +/-)
+    string timeBase = timePart;
+    foreach int i in 6 ..< timePart.length() {
+        string ch = timePart.substring(i, i + 1);
+        if ch == "+" || ch == "-" || ch == "Z" {
+            timeBase = timePart.substring(0, i);
+            break;
+        }
+    }
+    return "@" + t.substring(0, <int>tIdx + 1) + timeBase;
+}
+
+// ========================================
+// DECIMAL EQUIVALENCE HELPER
+// ========================================
+
+isolated function countDecimalPlacesStr(string s) returns int {
+    int? dotIdx = s.indexOf(".");
+    if dotIdx is () { return 0; }
+    return s.length() - <int>dotIdx - 1;
+}
+
+isolated function decimalsEquivalent(decimal a, decimal b) returns boolean {
+    int precA = countDecimalPlacesStr(a.toString());
+    int precB = countDecimalPlacesStr(b.toString());
+    int prec = precA < precB ? precA : precB;
+    if prec == 0 {
+        return a == b;
+    }
+    decimal factor = 1.0d;
+    foreach int i in 0 ..< prec {
+        factor *= 10.0d;
+    }
+    // Round to `prec` decimal places using truncation-towards-zero after +0.5
+    decimal roundedA = <decimal>(<int>(a * factor + 0.5d)) / factor;
+    decimal roundedB = <decimal>(<int>(b * factor + 0.5d)) / factor;
+    return roundedA == roundedB;
+}
+
+// ========================================
+// QUANTITY COMPARISON HELPERS
+// ========================================
+
+// Compares two JSON quantity maps for equality (= operator)
+// FHIRPath quantity literal: {"value": N, "unit": "U"}
+// FHIR resource quantity:    {"value": N, "unit": "display", "code": "U", ...}
+isolated function compareQuantityValues(map<json> a, map<json> b) returns boolean? {
+    json aVal = a["value"];
+    json bVal = b["value"];
+    if aVal is () || bVal is () { return (); }
+    if !((aVal is int || aVal is decimal || aVal is float) && (bVal is int || bVal is decimal || bVal is float)) {
+        return ();
+    }
+    if toFloat(aVal) != toFloat(bVal) { return false; }
+    // Unit comparison: check "unit" and "code" fields cross-ways
+    string? aUnit = a["unit"] is string ? <string>a["unit"] : ();
+    string? aCode = a["code"] is string ? <string>a["code"] : ();
+    string? bUnit = b["unit"] is string ? <string>b["unit"] : ();
+    string? bCode = b["code"] is string ? <string>b["code"] : ();
+    // Match if any combination of unit/code equals
+    if unitsMatch(aUnit, aCode, bUnit, bCode) { return true; }
+    return false;
+}
+
+isolated function compareQuantityValuesEquivalent(map<json> a, map<json> b) returns boolean {
+    boolean? eq = compareQuantityValues(a, b);
+    if eq is () { return false; }
+    return eq;
+}
+
+isolated function unitsMatch(string? aUnit, string? aCode, string? bUnit, string? bCode) returns boolean {
+    // Try all combinations: compare case-insensitively
+    string?[] aOptions = [aUnit, aCode];
+    string?[] bOptions = [bUnit, bCode];
+    foreach string? ao in aOptions {
+        if ao is () { continue; }
+        foreach string? bo in bOptions {
+            if bo is () { continue; }
+            if ao.toLowerAscii() == bo.toLowerAscii() { return true; }
+        }
+    }
+    return false;
 }
 
 isolated function isEqual(anydata a, anydata b) returns boolean {

@@ -171,16 +171,22 @@ isolated function applyContainsStringFunction(json[] collection, Expr[] params, 
     if collection.length() == 0 {
         return [];
     }
+    json val = collection[0];
+    if val !is string {
+        return error FHIRPathInterpreterError("contains() requires a String input, got non-string value",
+            token = {tokenType: IDENTIFIER, lexeme: "contains", literal: (), position: 0});
+    }
     json[] subResult = check evaluate(params[0], context, env);
     if subResult.length() == 0 {
-        return [];
+        return error FHIRPathInterpreterError("contains() substring parameter evaluated to empty",
+            token = {tokenType: IDENTIFIER, lexeme: "contains", literal: (), position: 0});
     }
-    json val = collection[0];
     json sub = subResult[0];
-    if val is string && sub is string {
-        return [val.includes(sub)];
+    if sub !is string {
+        return error FHIRPathInterpreterError("contains() substring must be a String",
+            token = {tokenType: IDENTIFIER, lexeme: "contains", literal: (), position: 0});
     }
-    return [];
+    return [val.includes(sub)];
 }
 
 isolated function applyIndexOfFunction(json[] collection, Expr[] params, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
@@ -508,4 +514,32 @@ isolated function hexCharToInt(string ch) returns int|error {
     if lower == "e" { return 14; }
     if lower == "f" { return 15; }
     return error("Invalid hex char: " + ch);
+}
+
+isolated function applyUpperFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
+    if params.length() != 0 {
+        return fnError("upper", "0 parameters", params.length());
+    }
+    if collection.length() == 0 {
+        return [];
+    }
+    json val = collection[0];
+    if val is string {
+        return [val.toUpperAscii()];
+    }
+    return [];
+}
+
+isolated function applyLowerFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
+    if params.length() != 0 {
+        return fnError("lower", "0 parameters", params.length());
+    }
+    if collection.length() == 0 {
+        return [];
+    }
+    json val = collection[0];
+    if val is string {
+        return [val.toLowerAscii()];
+    }
+    return [];
 }
