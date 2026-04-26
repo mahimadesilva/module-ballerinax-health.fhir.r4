@@ -274,15 +274,10 @@ isolated function applyOfTypeFunction(json[] collection, Expr[] params, json con
     if params.length() != 1 {
         return fnError("ofType", "1 parameter", params.length());
     }
-    json[] typeResult = check evaluate(params[0], context, env);
-    if typeResult.length() == 0 {
+    string typeName = extractTypeName(params[0]);
+    if typeName.length() == 0 {
         return [];
     }
-    json typeVal = typeResult[0];
-    if typeVal !is string {
-        return [];
-    }
-    string typeName = typeVal;
     json[] result = [];
     foreach json item in collection {
         if matchesFhirType(item, typeName) {

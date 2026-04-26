@@ -49,8 +49,9 @@ type FhirPathEnv record {|
 # + expression - The parsed FHIRPath expression (AST)
 # + context - The JSON context object (typically a FHIR resource)
 # + return - A collection of JSON results, or a FhirpathInterpreterError if evaluation fails
-isolated function interpret(Expr expression, json context) returns FHIRPathInterpreterError|json[] {
-    return evaluate(expression, context, {});
+isolated function interpret(Expr expression, json context, map<json>? variables = ()) returns FHIRPathInterpreterError|json[] {
+    FhirPathEnv env = variables is map<json> ? {variables: variables} : {};
+    return evaluate(expression, context, env);
 }
 
 # Evaluates a FHIRPath expression node against a context.
@@ -261,11 +262,14 @@ isolated function visitUnaryExpr(UnaryExpr expr, json context, FhirPathEnv env) 
     return [val];
 }
 
-isolated function visitExternalConstantExpr(ExternalConstantExpr expr, FhirPathEnv env) returns json[] {
-    // Look up in variables if available
+isolated function visitExternalConstantExpr(ExternalConstantExpr expr, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
     map<json>? variables = env.variables;
-    if variables is map<json> && variables.hasKey(expr.name) {
-        return wrapInCollection(variables[expr.name]);
+    if variables is map<json> {
+        if variables.hasKey(expr.name) {
+            return wrapInCollection(variables[expr.name]);
+        }
+        FhirPathToken dummyToken = {tokenType: IDENTIFIER, lexeme: "%" + expr.name, literal: (), position: 0};
+        return error FHIRPathInterpreterError("Undefined constant: %" + expr.name, token = dummyToken);
     }
     return [];
 }
