@@ -251,14 +251,23 @@ isolated function scanDollarSpecial(ScannerState state) returns FHIRPathScannerE
 # + return - Updated state with DATE, DATETIME, or TIME token, or an error
 isolated function scanDateTimeLiteral(ScannerState state) returns FHIRPathScannerError|ScannerState {
     ScannerState newState = state;
-    // Collect all characters that can be part of date/time: digits, -, :, T, Z, +, .
-    while !isScannerAtEnd(newState) {
+    // Collect all characters that can be part of date/time: digits, -, :, T, Z, +
+    // For '.', only consume when the next char is a digit (milliseconds separator);
+    // otherwise it is a member-access dot and must remain as a separate token.
+    // Use keepScanning flag instead of break to avoid nested-if break semantics issues.
+    boolean keepScanning = true;
+    while !isScannerAtEnd(newState) && keepScanning {
         string ch = peekScanner(newState);
-        if isDigit(ch) || ch == "-" || ch == ":" || ch == "T" || ch == "Z" || ch == "+" || ch == "." {
+        if isDigit(ch) || ch == "-" || ch == ":" || ch == "T" || ch == "Z" || ch == "+" {
+            [string, ScannerState] r = advanceScanner(newState);
+            newState = r[1];
+        } else if ch == "." && isDigit(peekScannerNext(newState)) {
+            // '.' followed by a digit: part of fractional seconds (e.g. .000)
             [string, ScannerState] r = advanceScanner(newState);
             newState = r[1];
         } else {
-            break;
+            // Any other character (including member-access dot): stop here
+            keepScanning = false;
         }
     }
     string text = newState.sourceCode.substring(newState.startIndex, newState.current);
@@ -273,6 +282,20 @@ isolated function scanDateTimeLiteral(ScannerState state) returns FHIRPathScanne
     } else {
         tokenType = DATE;
     }
+
+    if tokenType == TIME {
+        // TIME literals cannot carry timezone (Z, +offset, -offset)
+        string timeContent = afterAt.substring(1); // strip leading 'T'
+        foreach int i in 0 ..< timeContent.length() {
+            string ch = timeContent.substring(i, i + 1);
+            if ch == "Z" || ch == "+" || ch == "-" {
+                return error FHIRPathScannerError(
+                    "Invalid time literal: time literals cannot include a timezone designator.",
+                    position = newState.startIndex);
+            }
+        }
+    }
+
     return addTokenWithLiteral(newState, tokenType, text);
 }
 

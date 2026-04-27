@@ -49,21 +49,39 @@ isolated function applyLowBoundaryFunction(json[] collection, Expr[] params, jso
         return [];
     }
     json val = collection[0];
-    int precision = 8; // default precision
+
+    // Determine precision: for strings use value's own precision as default,
+    // numeric types default to 8
+    int precision = 8;
+    if val is string && params.length() == 0 {
+        precision = dateTimePrecision(val);
+    }
     if params.length() == 1 {
         json[] precResult = check evaluate(params[0], context, env);
         if precResult.length() > 0 && precResult[0] is int {
             precision = <int>precResult[0];
         }
     }
-    // For numeric values: low boundary is value - 5 * 10^-(precision+1)
+
     if val is decimal {
+        if precision < 0 || precision > 28 {
+            return [];
+        }
         decimal half = computeHalfUlp(val, precision);
         return [val - half];
+    } else if val is float {
+        if precision < 0 || precision > 28 {
+            return [];
+        }
+        decimal dval = <decimal>val;
+        decimal half = computeHalfUlp(dval, precision);
+        return [dval - half];
     } else if val is int {
+        if precision < 0 || precision > 28 {
+            return [];
+        }
         return [val];
     }
-    // For date strings: return the start of the implied period
     if val is string {
         return [dateTimeLowBoundary(val, precision)];
     }
@@ -78,17 +96,35 @@ isolated function applyHighBoundaryFunction(json[] collection, Expr[] params, js
         return [];
     }
     json val = collection[0];
+
     int precision = 8;
+    if val is string && params.length() == 0 {
+        precision = dateTimePrecision(val);
+    }
     if params.length() == 1 {
         json[] precResult = check evaluate(params[0], context, env);
         if precResult.length() > 0 && precResult[0] is int {
             precision = <int>precResult[0];
         }
     }
+
     if val is decimal {
+        if precision < 0 || precision > 28 {
+            return [];
+        }
         decimal half = computeHalfUlp(val, precision);
         return [val + half];
+    } else if val is float {
+        if precision < 0 || precision > 28 {
+            return [];
+        }
+        decimal dval = <decimal>val;
+        decimal half = computeHalfUlp(dval, precision);
+        return [dval + half];
     } else if val is int {
+        if precision < 0 || precision > 28 {
+            return [];
+        }
         return [val];
     }
     if val is string {
@@ -115,7 +151,6 @@ isolated function applyPrecisionFunction(json[] collection, Expr[] params) retur
     } else if val is int {
         return [0];
     }
-    // For date/time strings, precision is determined by the granularity
     if val is string {
         return [dateTimePrecision(val)];
     }
@@ -140,49 +175,192 @@ isolated function computeHalfUlp(decimal val, int precision) returns decimal {
     return factor;
 }
 
-isolated function dateTimeLowBoundary(string val, int precision) returns string {
-    // Remove @ prefix if present
-    string s = val.startsWith("@") ? val.substring(1) : val;
-    // Return the start of the implied period at the given precision
-    if s.length() == 4 {
-        return "@" + s + "-01-01T00:00:00.000+00:00";
-    } else if s.length() == 7 {
-        return "@" + s + "-01T00:00:00.000+00:00";
-    } else if s.length() == 10 {
-        return "@" + s + "T00:00:00.000+00:00";
+isolated function lastDayOfMonth(int year, int month) returns int {
+    if month == 2 {
+        boolean isLeap = (year % 4 == 0) && ((year % 100 != 0) || (year % 400 == 0));
+        return isLeap ? 29 : 28;
     }
-    return val;
+    if month == 4 || month == 6 || month == 9 || month == 11 {
+        return 30;
+    }
+    return 31;
+}
+
+// Returns [timeWithoutTz, tzSuffix]. tzSuffix is "" when no timezone is present.
+isolated function extractTzFromTime(string s) returns [string, string] {
+    if s.endsWith("Z") {
+        return [s.substring(0, s.length() - 1), "Z"];
+    }
+    if s.length() >= 6 {
+        string last6 = s.substring(s.length() - 6);
+        if last6.startsWith("+") || last6.startsWith("-") {
+            return [s.substring(0, s.length() - 6), last6];
+        }
+    }
+    return [s, ""];
+}
+
+// Expand time part (no tz) to HH:MM:SS.sss for low boundary.
+// Bare "HH" (2 chars) is treated as HH:00 so only seconds/ms are uncertain.
+isolated function expandTimeLow(string timeNoTz) returns string {
+    string t = timeNoTz.length() == 2 ? timeNoTz + ":00" : timeNoTz;
+    if t.length() <= 5 {
+        t = t + ":00";
+    }
+    if t.length() <= 8 {
+        t = t + ".000";
+    }
+    return t;
+}
+
+// Expand time part (no tz) to HH:MM:SS.sss for high boundary.
+isolated function expandTimeHigh(string timeNoTz) returns string {
+    string t = timeNoTz.length() == 2 ? timeNoTz + ":00" : timeNoTz;
+    if t.length() <= 5 {
+        t = t + ":59";
+    }
+    if t.length() <= 8 {
+        t = t + ".999";
+    }
+    return t;
+}
+
+// Expand a date-only string to the appropriate low boundary at the given precision.
+isolated function expandDateLow(string datePart, int precision) returns string {
+    if datePart.length() == 4 {
+        if precision <= 4 { return datePart; }
+        if precision <= 6 { return datePart + "-01"; }
+        if precision <= 8 { return datePart + "-01-01"; }
+        return datePart + "-01-01T00:00:00.000+14:00";
+    }
+    if datePart.length() == 7 {
+        if precision <= 6 { return datePart; }
+        if precision <= 8 { return datePart + "-01"; }
+        return datePart + "-01T00:00:00.000+14:00";
+    }
+    if datePart.length() == 10 {
+        if precision <= 8 { return datePart; }
+        return datePart + "T00:00:00.000+14:00";
+    }
+    return datePart;
+}
+
+// Expand a date-only string to the appropriate high boundary at the given precision.
+isolated function expandDateHigh(string datePart, int precision) returns string {
+    if datePart.length() == 4 {
+        if precision <= 4 { return datePart; }
+        if precision <= 6 { return datePart + "-12"; }
+        if precision <= 8 { return datePart + "-12-31"; }
+        return datePart + "-12-31T23:59:59.999-12:00";
+    }
+    if datePart.length() == 7 {
+        int year = checkpanic int:fromString(datePart.substring(0, 4));
+        int month = checkpanic int:fromString(datePart.substring(5, 7));
+        int lastDay = lastDayOfMonth(year, month);
+        if precision <= 6 { return datePart; }
+        if precision <= 8 { return datePart + "-" + zeroPad(lastDay); }
+        return datePart + "-" + zeroPad(lastDay) + "T23:59:59.999-12:00";
+    }
+    if datePart.length() == 10 {
+        if precision <= 8 { return datePart; }
+        return datePart + "T23:59:59.999-12:00";
+    }
+    return datePart;
+}
+
+isolated function dateTimeLowBoundary(string val, int precision) returns string {
+    boolean hasAt = val.startsWith("@");
+    string s = hasAt ? val.substring(1) : val;
+    string prefix = hasAt ? "@" : "";
+
+    // Time-only (starts with T)
+    if s.startsWith("T") {
+        if precision >= 9 {
+            string timePart = s.substring(1);
+            [string, string] extracted = extractTzFromTime(timePart);
+            return prefix + "T" + expandTimeLow(extracted[0]) + extracted[1];
+        }
+        return val;
+    }
+
+    int? tIdx = s.indexOf("T");
+    if tIdx is () {
+        // Date only
+        return prefix + expandDateLow(s, precision);
+    }
+
+    // DateTime
+    string datePart = s.substring(0, tIdx);
+    string afterT = s.substring(tIdx + 1);
+    [string, string] extracted = extractTzFromTime(afterT);
+
+    if precision <= 8 {
+        return prefix + datePart;
+    }
+    string tzToUse = extracted[1] == "" ? "+14:00" : extracted[1];
+    return prefix + datePart + "T" + expandTimeLow(extracted[0]) + tzToUse;
 }
 
 isolated function dateTimeHighBoundary(string val, int precision) returns string {
-    string s = val.startsWith("@") ? val.substring(1) : val;
-    if s.length() == 4 {
-        return "@" + s + "-12-31T23:59:59.999+00:00";
-    } else if s.length() == 7 {
-        // Last day of month — simplified to 28 (conservative)
-        return "@" + s + "-28T23:59:59.999+00:00";
-    } else if s.length() == 10 {
-        return "@" + s + "T23:59:59.999+00:00";
+    boolean hasAt = val.startsWith("@");
+    string s = hasAt ? val.substring(1) : val;
+    string prefix = hasAt ? "@" : "";
+
+    // Time-only (starts with T)
+    if s.startsWith("T") {
+        if precision >= 9 {
+            string timePart = s.substring(1);
+            [string, string] extracted = extractTzFromTime(timePart);
+            return prefix + "T" + expandTimeHigh(extracted[0]) + extracted[1];
+        }
+        return val;
     }
-    return val;
+
+    int? tIdx = s.indexOf("T");
+    if tIdx is () {
+        // Date only
+        return prefix + expandDateHigh(s, precision);
+    }
+
+    // DateTime
+    string datePart = s.substring(0, tIdx);
+    string afterT = s.substring(tIdx + 1);
+    [string, string] extracted = extractTzFromTime(afterT);
+
+    if precision <= 8 {
+        return prefix + datePart;
+    }
+    string tzToUse = extracted[1] == "" ? "-12:00" : extracted[1];
+    return prefix + datePart + "T" + expandTimeHigh(extracted[0]) + tzToUse;
+}
+
+// Count digit characters only (excludes -, :, ., T separators)
+isolated function countSigDigits(string s) returns int {
+    int count = 0;
+    foreach int i in 0 ..< s.length() {
+        if isDigit(s.substring(i, i + 1)) {
+            count += 1;
+        }
+    }
+    return count;
 }
 
 isolated function dateTimePrecision(string val) returns int {
     string s = val.startsWith("@") ? val.substring(1) : val;
-    if s.startsWith("T") { s = s.substring(1); }
-    // Date portion length determines precision
-    if s.length() == 4 { return 4; }  // year
-    if s.length() == 7 { return 6; }  // year-month
-    if s.length() == 10 { return 8; } // year-month-day
-    if s.includes("T") {
-        // DateTime
-        int? tIdx = s.indexOf("T");
-        if tIdx is int {
-            string timePart = s.substring(tIdx + 1);
-            if timePart.length() >= 2 { return 10; }  // hours
-            if timePart.length() >= 5 { return 12; }  // hours:minutes
-            if timePart.length() >= 8 { return 14; }  // hours:minutes:seconds
-        }
+    if s.startsWith("T") {
+        // Time-only: @T10:30:00.000[tz]
+        string timeStr = s.substring(1);
+        [string, string] extracted = extractTzFromTime(timeStr);
+        return countSigDigits(extracted[0]);
     }
-    return 8;
+    int? tIdx = s.indexOf("T");
+    if tIdx is int {
+        // DateTime: @2014-01-05T10:30:00.000[tz]
+        string datePart = s.substring(0, tIdx);
+        string afterT = s.substring(tIdx + 1);
+        [string, string] extracted = extractTzFromTime(afterT);
+        return countSigDigits(datePart) + countSigDigits(extracted[0]);
+    }
+    // Date-only: @2014, @2014-01, @2014-01-05
+    return countSigDigits(s);
 }

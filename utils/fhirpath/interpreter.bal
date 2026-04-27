@@ -257,6 +257,9 @@ isolated function visitUnaryExpr(UnaryExpr expr, json context, FhirPathEnv env) 
         if val is int { return [-val]; }
         if val is decimal { return [-val]; }
         if val is float { return [-val]; }
+        return error FHIRPathInterpreterError(
+            "Unary minus cannot be applied to a non-numeric value",
+            token = expr.operator);
     }
     // PLUS is a no-op
     return [val];
@@ -498,7 +501,7 @@ isolated function applyImpliesOperator(json[] left, json[] right) returns json[]
     return [isTruthy(right)];
 }
 
-isolated function applyComparisonOperator(json[] left, json[] right, string op) returns json[] {
+isolated function applyComparisonOperator(json[] left, json[] right, string op) returns FHIRPathInterpreterError|json[] {
     if left.length() == 0 || right.length() == 0 {
         return [];
     }
@@ -515,22 +518,32 @@ isolated function applyComparisonOperator(json[] left, json[] right, string op) 
         if op == ">=" { return [lf >= rf]; }
     }
 
-    // String comparison
+    // Incompatible: numeric vs non-numeric non-null value
+    boolean lNumeric = l is int || l is decimal || l is float;
+    boolean rNumeric = r is int || r is decimal || r is float;
+    if (lNumeric && !rNumeric && r !is ()) || (rNumeric && !lNumeric && l !is ()) {
+        return error FHIRPathInterpreterError(
+            string `Cannot compare numeric and non-numeric types with '${op}'`,
+            token = {tokenType: IDENTIFIER, lexeme: op, literal: (), position: 0});
+    }
+
+    // String comparison (includes date/time literals)
     if l is string && r is string {
+        // Timezone-aware datetime comparison: normalize both to UTC minutes
+        if l.startsWith("@") && r.startsWith("@") {
+            int? lMin = datetimeToUTCMinutes(l);
+            int? rMin = datetimeToUTCMinutes(r);
+            if lMin is int && rMin is int {
+                if op == "<" { return [lMin < rMin]; }
+                if op == ">" { return [lMin > rMin]; }
+                if op == "<=" { return [lMin <= rMin]; }
+                if op == ">=" { return [lMin >= rMin]; }
+            }
+        }
         if op == "<" { return [l < r]; }
         if op == ">" { return [l > r]; }
         if op == "<=" { return [l <= r]; }
         if op == ">=" { return [l >= r]; }
-    }
-
-    // Date/time comparison (lexicographic on @YYYY-MM-DD... strings)
-    if l is string && r is string {
-        string ls = l.startsWith("@") ? l : l;
-        string rs = r.startsWith("@") ? r : r;
-        if op == "<" { return [ls < rs]; }
-        if op == ">" { return [ls > rs]; }
-        if op == "<=" { return [ls <= rs]; }
-        if op == ">=" { return [ls >= rs]; }
     }
 
     return [];
@@ -750,6 +763,7 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context, FhirPathEnv
     if name == "convertsToDate" { return applyConvertsToDateFunction(targetResults, params); }
     if name == "convertsToDateTime" { return applyConvertsToDateTimeFunction(targetResults, params); }
     if name == "convertsToTime" { return applyConvertsToTimeFunction(targetResults, params); }
+    if name == "convertsToQuantity" { return applyConvertsToQuantityFunction(targetResults, params); }
     if name == "ofType" { return applyOfTypeFunction(targetResults, params, context, env); }
     if name == "is" { return applyIsTypeFunction(targetResults, params, context, env); }
     if name == "as" { return applyAsTypeFunction(targetResults, params, context, env); }

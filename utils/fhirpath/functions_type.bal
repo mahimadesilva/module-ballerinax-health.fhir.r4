@@ -270,6 +270,17 @@ isolated function applyConvertsToTimeFunction(json[] collection, Expr[] params) 
     return [false];
 }
 
+isolated function applyConvertsToQuantityFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
+    if collection.length() == 0 {
+        return [];
+    }
+    json val = collection[0];
+    if val is map<json> {
+        return [val["value"] !is () && val["unit"] !is ()];
+    }
+    return [false];
+}
+
 isolated function applyOfTypeFunction(json[] collection, Expr[] params, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
     if params.length() != 1 {
         return fnError("ofType", "1 parameter", params.length());
@@ -322,18 +333,14 @@ isolated function applyIsTypeFunction(json[] collection, Expr[] params, json con
     if params.length() != 1 {
         return fnError("is", "1 parameter", params.length());
     }
-    json[] typeResult = check evaluate(params[0], context, env);
-    if typeResult.length() == 0 {
-        return [];
-    }
-    json typeVal = typeResult[0];
-    if typeVal !is string {
+    string typeName = extractTypeName(params[0]);
+    if typeName.length() == 0 {
         return [];
     }
     if collection.length() == 0 {
         return [false];
     }
-    return [matchesFhirType(collection[0], typeVal)];
+    return [matchesFhirType(collection[0], typeName)];
 }
 
 isolated function applyAsTypeFunction(json[] collection, Expr[] params, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
