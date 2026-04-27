@@ -39,11 +39,6 @@ isolated function applyToIntegerFunction(json[] collection, Expr[] params) retur
         if i is int {
             return [i];
         }
-        // Try decimal then truncate
-        decimal|error d = decimal:fromString(val);
-        if d is decimal {
-            return [<int>d];
-        }
         return [];
     }
     return [];
@@ -97,6 +92,17 @@ isolated function applyToStringFunction(json[] collection, Expr[] params) return
         return [val.toString()];
     } else if val is float {
         return [val.toString()];
+    } else if val is map<json> {
+        json unitJson = val["unit"];
+        json valJson = val["value"];
+        if unitJson is string {
+            decimal dval;
+            if valJson is decimal { dval = valJson; }
+            else if valJson is int { dval = <decimal>valJson; }
+            else if valJson is float { dval = <decimal>valJson; }
+            else { return []; }
+            return [quantityToString(dval, unitJson)];
+        }
     }
     return [];
 }
@@ -214,6 +220,9 @@ isolated function applyConvertsToStringFunction(json[] collection, Expr[] params
         return [];
     }
     json val = collection[0];
+    if val is map<json> {
+        return [val["value"] !is () && val["unit"] !is ()];
+    }
     return [val is string || val is int || val is decimal || val is float || val is boolean];
 }
 
@@ -275,10 +284,51 @@ isolated function applyConvertsToQuantityFunction(json[] collection, Expr[] para
         return [];
     }
     json val = collection[0];
+    if val is int || val is decimal || val is float { return [true]; }
+    if val is boolean { return [true]; }
+    if val is string { return [isValidQuantityString(val)]; }
     if val is map<json> {
         return [val["value"] !is () && val["unit"] !is ()];
     }
     return [false];
+}
+
+isolated function applyToQuantityFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
+    if params.length() != 0 {
+        return fnError("toQuantity", "0 parameters", params.length());
+    }
+    if collection.length() == 0 {
+        return [];
+    }
+    json val = collection[0];
+    if val is int {
+        return [{"value": <decimal>val, "unit": "1"}];
+    }
+    if val is decimal {
+        return [{"value": val, "unit": "1"}];
+    }
+    if val is float {
+        decimal|error d = decimal:fromString(val.toString());
+        if d is decimal { return [{"value": d, "unit": "1"}]; }
+        return [];
+    }
+    if val is boolean {
+        return [{"value": val ? 1d : 0d, "unit": "1"}];
+    }
+    if val is string {
+        map<json>? q = parseQuantityFromString(val);
+        if q is () { return []; }
+        json unitJson = q["unit"];
+        json valJson = q["value"];
+        if unitJson !is string || valJson !is decimal { return []; }
+        return [quantityToString(<decimal>valJson, <string>unitJson)];
+    }
+    if val is map<json> {
+        if val["value"] !is () && val["unit"] !is () {
+            return [val];
+        }
+    }
+    return [];
 }
 
 isolated function applyOfTypeFunction(json[] collection, Expr[] params, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
@@ -435,4 +485,68 @@ isolated function isDigits(string s) returns boolean {
         if cp is error { return false; }
     }
     return true;
+}
+
+// ========================================
+// QUANTITY HELPERS
+// ========================================
+
+final readonly & string[] QUANTITY_CALENDAR_UNITS = [
+    "year", "month", "week", "day", "hour", "minute", "second", "millisecond",
+    "years", "months", "weeks", "days", "hours", "minutes", "seconds", "milliseconds"
+];
+
+isolated function isCalendarQuantityUnit(string unit) returns boolean {
+    foreach string kw in QUANTITY_CALENDAR_UNITS {
+        if unit == kw { return true; }
+    }
+    return false;
+}
+
+isolated function quantityToString(decimal val, string unit) returns string {
+    string valStr = val.toString();
+    // Strip trailing ".0" for whole numbers (e.g., 1.0 → "1")
+    if valStr.endsWith(".0") {
+        valStr = valStr.substring(0, valStr.length() - 2);
+    }
+    if isCalendarQuantityUnit(unit) {
+        return valStr + " " + unit;
+    }
+    return valStr + " '" + unit + "'";
+}
+
+isolated function parseQuantityFromString(string s) returns map<json>? {
+    string trimmed = s.trim();
+    if trimmed.length() == 0 {
+        return ();
+    }
+    int? spaceIdx = trimmed.indexOf(" ");
+    string numStr;
+    string unitPart;
+    if spaceIdx is () {
+        numStr = trimmed;
+        unitPart = "";
+    } else {
+        numStr = trimmed.substring(0, <int>spaceIdx);
+        unitPart = trimmed.substring(<int>spaceIdx + 1).trim();
+    }
+    decimal|error d = decimal:fromString(numStr);
+    if d is error {
+        return ();
+    }
+    string unit;
+    if unitPart.length() == 0 {
+        unit = "1";
+    } else if unitPart.startsWith("'") && unitPart.endsWith("'") && unitPart.length() >= 2 {
+        unit = unitPart.substring(1, unitPart.length() - 1);
+    } else if isCalendarQuantityUnit(unitPart) {
+        unit = unitPart;
+    } else {
+        return ();
+    }
+    return {"value": d, "unit": unit};
+}
+
+isolated function isValidQuantityString(string s) returns boolean {
+    return parseQuantityFromString(s) !is ();
 }

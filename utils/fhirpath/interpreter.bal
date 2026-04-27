@@ -372,6 +372,13 @@ isolated function extractTypeName(Expr expr) returns string {
     if expr is LiteralExpr && expr.value is string {
         return <string>expr.value;
     }
+    if expr is MemberAccessExpr {
+        string targetName = extractTypeName(expr.target);
+        if targetName.length() > 0 {
+            return targetName + "." + expr.member;
+        }
+        return expr.member;
+    }
     return "";
 }
 
@@ -756,6 +763,7 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context, FhirPathEnv
     if name == "toDate" { return applyToDateFunction(targetResults, params); }
     if name == "toDateTime" { return applyToDateTimeFunction(targetResults, params); }
     if name == "toTime" { return applyToTimeFunction(targetResults, params); }
+    if name == "toQuantity" { return applyToQuantityFunction(targetResults, params); }
     if name == "convertsToInteger" { return applyConvertsToIntegerFunction(targetResults, params); }
     if name == "convertsToDecimal" { return applyConvertsToDecimalFunction(targetResults, params); }
     if name == "convertsToString" { return applyConvertsToStringFunction(targetResults, params); }
@@ -964,6 +972,17 @@ isolated function jsonValuesEqual(json a, json b) returns boolean? {
     if a is map<json> && b is map<json> {
         return compareQuantityValues(a, b);
     }
+    // String vs quantity map (e.g., toQuantity() string result vs quantity literal map)
+    if a is string && b is map<json> {
+        map<json>? qa = parseQuantityFromString(a);
+        if qa is map<json> { return compareQuantityValues(qa, b); }
+        return ();
+    }
+    if a is map<json> && b is string {
+        map<json>? qb = parseQuantityFromString(b);
+        if qb is map<json> { return compareQuantityValues(a, qb); }
+        return ();
+    }
     return a.toString() == b.toString();
 }
 
@@ -987,6 +1006,23 @@ isolated function jsonValuesEquivalent(json a, json b) returns boolean {
     }
     if a is map<json> && b is map<json> {
         return compareQuantityValuesEquivalent(a, b);
+    }
+    // String vs quantity map
+    if a is string && b is map<json> {
+        map<json>? qa = parseQuantityFromString(a);
+        if qa is map<json> {
+            boolean? eq = compareQuantityValues(qa, b);
+            return eq == true;
+        }
+        return false;
+    }
+    if a is map<json> && b is string {
+        map<json>? qb = parseQuantityFromString(b);
+        if qb is map<json> {
+            boolean? eq = compareQuantityValues(a, qb);
+            return eq == true;
+        }
+        return false;
     }
     return a.toString().toLowerAscii() == b.toString().toLowerAscii();
 }
@@ -1189,9 +1225,27 @@ isolated function compareQuantityValues(map<json> a, map<json> b) returns boolea
     string? aCode = a["code"] is string ? <string>a["code"] : ();
     string? bUnit = b["unit"] is string ? <string>b["unit"] : ();
     string? bCode = b["code"] is string ? <string>b["code"] : ();
-    // Match if any combination of unit/code equals
     if unitsMatch(aUnit, aCode, bUnit, bCode) { return true; }
-    return false;
+    // Cross-system normalization (UCUM↔calendar equivalences like d↔day, wk↔week)
+    string effectiveA = (aUnit ?: aCode) ?: "";
+    string effectiveB = (bUnit ?: bCode) ?: "";
+    string? normA = quantityUnitCanonical(effectiveA);
+    string? normB = quantityUnitCanonical(effectiveB);
+    if normA is () || normB is () { return (); }
+    return normA == normB;
+}
+
+isolated function quantityUnitCanonical(string unit) returns string? {
+    string lower = unit.toLowerAscii();
+    if lower == "d" || lower == "day" || lower == "days" { return "d"; }
+    if lower == "wk" || lower == "week" || lower == "weeks" { return "wk"; }
+    if lower == "h" || lower == "hour" || lower == "hours" { return "h"; }
+    if lower == "min" || lower == "minute" || lower == "minutes" { return "min"; }
+    if lower == "s" || lower == "second" || lower == "seconds" { return "s"; }
+    if lower == "ms" || lower == "millisecond" || lower == "milliseconds" { return "ms"; }
+    if lower == "mo" || lower == "month" || lower == "months" { return (); }
+    if lower == "a" || lower == "year" || lower == "years" { return (); }
+    return lower;
 }
 
 isolated function compareQuantityValuesEquivalent(map<json> a, map<json> b) returns boolean {
