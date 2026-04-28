@@ -623,7 +623,9 @@ isolated function parsePrimary(ParserState state) returns FHIRPathParserError|Pa
         [boolean, ParserState] idMatch = matchIdentifierOrKeyword(newState);
         if idMatch[0] {
             FhirPathToken idTok = previousparse(idMatch[1]);
-            return [createExternalConstantExpr(idTok.lexeme), idMatch[1]];
+            string constName = idTok.tokenType == DELIMITED_IDENTIFIER && idTok.literal is string
+                ? <string>idTok.literal : idTok.lexeme;
+            return [createExternalConstantExpr(constName), idMatch[1]];
         }
         FhirPathToken tok = peekparse(newState);
         return error FHIRPathParserError("Expected identifier or string after '%'.", token = tok);

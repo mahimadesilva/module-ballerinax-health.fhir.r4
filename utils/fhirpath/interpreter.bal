@@ -312,6 +312,17 @@ isolated function visitExternalConstantExpr(ExternalConstantExpr expr, FhirPathE
     if env.scope.hasKey(expr.name) {
         return wrapInCollection(env.scope.get(expr.name));
     }
+    match expr.name {
+        "sct" => { return ["http://snomed.info/sct"]; }
+        "loinc" => { return ["http://loinc.org"]; }
+        "ucum" => { return ["http://unitsofmeasure.org"]; }
+    }
+    if expr.name.startsWith("vs-") {
+        return ["http://hl7.org/fhir/ValueSet/" + expr.name.substring(3)];
+    }
+    if expr.name.startsWith("ext-") {
+        return ["http://hl7.org/fhir/StructureDefinition/" + expr.name.substring(4)];
+    }
     FhirPathToken dummyToken = {tokenType: IDENTIFIER, lexeme: "%" + expr.name, literal: (), position: 0};
     return error FHIRPathInterpreterError("Undefined constant: %" + expr.name, token = dummyToken);
 }
