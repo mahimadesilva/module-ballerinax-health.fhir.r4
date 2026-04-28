@@ -344,14 +344,15 @@ isolated function visitBinaryExpr(BinaryExpr expr, json context, FhirPathEnv env
         json[] leftResults = check evaluate(expr.left, context, env);
         string typeName = extractTypeName(expr.right);
         if leftResults.length() == 0 { return [false]; }
-        return [matchesFhirType(leftResults[0], typeName)];
+        return [matchesFhirType(leftResults[0], typeName, isSystemSourceExpr(expr.left))];
     }
     if operatorType == AS {
         json[] leftResults = check evaluate(expr.left, context, env);
         string typeName = extractTypeName(expr.right);
+        boolean isLitSrc = isSystemSourceExpr(expr.left);
         json[] result = [];
         foreach json item in leftResults {
-            if matchesFhirType(item, typeName) {
+            if matchesFhirType(item, typeName, isLitSrc) {
                 result.push(item);
             }
         }
@@ -1170,8 +1171,17 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context, FhirPathEnv
     if name == "convertsToDateTime" { return applyConvertsToDateTimeFunction(targetResults, params); }
     if name == "convertsToTime" { return applyConvertsToTimeFunction(targetResults, params); }
     if name == "convertsToQuantity" { return applyConvertsToQuantityFunction(targetResults, params); }
+    if name == "type" { return applyTypeFunction(targetResults, params, targetExpr); }
     if name == "ofType" { return applyOfTypeFunction(targetResults, params, context, env); }
-    if name == "is" { return applyIsTypeFunction(targetResults, params, context, env); }
+    if name == "is" {
+        if params.length() != 1 {
+            return fnError("is", "1 parameter", params.length());
+        }
+        string isTypeName = extractTypeName(params[0]);
+        if isTypeName.length() == 0 { return []; }
+        if targetResults.length() == 0 { return [false]; }
+        return [matchesFhirType(targetResults[0], isTypeName, isSystemSourceExpr(targetExpr))];
+    }
     if name == "as" { return applyAsTypeFunction(targetResults, params, context, env); }
 
     // ---- Logic ----
@@ -1194,9 +1204,6 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context, FhirPathEnv
     // ---- Utility ----
     if name == "trace" { return applyTraceFunction(targetResults, params, context, env); }
     if name == "defineVariable" { return applyDefineVariableFunction(targetResults, params, context, env); }
-
-    // ---- Type casting (function form) ----
-    if name == "ofType" { return applyOfTypeFunction(targetResults, params, context, env); }
 
     return error FHIRPathInterpreterError(string `Unknown function '${name}'`,
         token = {tokenType: IDENTIFIER, lexeme: name, literal: (), position: 0});

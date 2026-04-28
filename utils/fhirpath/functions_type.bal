@@ -18,6 +18,54 @@
 // TYPE CONVERSION AND CHECKING FUNCTIONS
 // ========================================
 
+final readonly & string[] SYSTEM_PRIMITIVE_NAMES = ["Boolean", "Integer", "String", "Decimal", "Quantity", "Date", "DateTime", "Time", "Any"];
+
+isolated function isSystemTypeName(string typeName) returns boolean {
+    foreach string n in SYSTEM_PRIMITIVE_NAMES {
+        if typeName == n { return true; }
+    }
+    return false;
+}
+
+isolated function isSystemSourceExpr(Expr? e) returns boolean {
+    if e is LiteralExpr { return true; }
+    if e is UnaryExpr { return isSystemSourceExpr(e.operand); }
+    if e is QuantityLiteralExpr { return true; }
+    return false;
+}
+
+isolated function applyTypeFunction(json[] collection, Expr[] params, Expr? targetExpr) returns FHIRPathInterpreterError|json[] {
+    if params.length() != 0 {
+        return fnError("type", "0 parameters", params.length());
+    }
+    if collection.length() == 0 { return []; }
+    boolean isSystemSource = isSystemSourceExpr(targetExpr);
+    json[] results = [];
+    foreach json item in collection {
+        results.push(classInfoOf(item, isSystemSource));
+    }
+    return results;
+}
+
+isolated function classInfoOf(json item, boolean isSystem) returns map<json> {
+    if item is map<json> {
+        json rt = item["resourceType"];
+        if rt is string { return {"namespace": "FHIR", "name": rt}; }
+    }
+    if isSystem {
+        if item is int { return {"namespace": "System", "name": "Integer"}; }
+        if item is decimal || item is float { return {"namespace": "System", "name": "Decimal"}; }
+        if item is string { return {"namespace": "System", "name": "String"}; }
+        if item is boolean { return {"namespace": "System", "name": "Boolean"}; }
+    } else {
+        if item is boolean { return {"namespace": "FHIR", "name": "boolean"}; }
+        if item is int { return {"namespace": "FHIR", "name": "integer"}; }
+        if item is decimal || item is float { return {"namespace": "FHIR", "name": "decimal"}; }
+        if item is string { return {"namespace": "FHIR", "name": "string"}; }
+    }
+    return {"namespace": "FHIR", "name": "unknown"};
+}
+
 isolated function applyToIntegerFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
     if params.length() != 0 {
         return fnError("toInteger", "0 parameters", params.length());
@@ -418,9 +466,12 @@ isolated function applyAsTypeFunction(json[] collection, Expr[] params, json con
 // TYPE CHECKING HELPERS
 // ========================================
 
-isolated function matchesFhirType(json item, string typeName) returns boolean {
+isolated function matchesFhirType(json item, string typeName, boolean isLiteralSource = false) returns boolean {
     string lowerType = typeName.toLowerAscii();
-    // Handle fully qualified names like FHIR.Patient, FHIR.string
+    boolean isSystemQualified = lowerType.startsWith("system.");
+    boolean isFhirQualified = lowerType.startsWith("fhir.");
+    boolean isSystemContext = isSystemQualified || (!isFhirQualified && isSystemTypeName(typeName));
+
     string simpleName;
     if lowerType.includes(".") {
         int? lastDot = lowerType.lastIndexOf(".");
@@ -429,34 +480,38 @@ isolated function matchesFhirType(json item, string typeName) returns boolean {
         simpleName = lowerType;
     }
 
-    if item is () {
+    if item is () { return false; }
+
+    if item is map<json> {
+        if isSystemContext { return false; }
+        json resourceType = item["resourceType"];
+        if resourceType is string {
+            return resourceType.toLowerAscii() == simpleName;
+        }
+        return simpleName == "element" || simpleName == "backboneelement"
+            || simpleName == "resource" || simpleName == "domainresource";
+    }
+
+    if isSystemContext {
+        if !isLiteralSource { return false; }
+        if item is boolean { return simpleName == "boolean"; }
+        if item is int { return simpleName == "integer" || simpleName == "positiveint" || simpleName == "unsignedint"; }
+        if item is decimal || item is float { return simpleName == "decimal"; }
+        if item is string {
+            return simpleName == "string" || simpleName == "date" || simpleName == "datetime" || simpleName == "time";
+        }
         return false;
     }
-    if item is boolean {
-        return simpleName == "boolean";
-    }
-    if item is int {
-        return simpleName == "integer" || simpleName == "positiveint" || simpleName == "unsignedint";
-    }
-    if item is decimal || item is float {
-        return simpleName == "decimal";
-    }
+
+    if item is boolean { return simpleName == "boolean"; }
+    if item is int { return simpleName == "integer" || simpleName == "positiveint" || simpleName == "unsignedint"; }
+    if item is decimal || item is float { return simpleName == "decimal"; }
     if item is string {
         return simpleName == "string" || simpleName == "code" || simpleName == "id"
             || simpleName == "markdown" || simpleName == "uri" || simpleName == "url"
             || simpleName == "canonical" || simpleName == "oid" || simpleName == "uuid"
             || simpleName == "date" || simpleName == "datetime" || simpleName == "instant"
             || simpleName == "time" || simpleName == "base64binary";
-    }
-    if item is map<json> {
-        // Check resourceType field for FHIR resources
-        json resourceType = item["resourceType"];
-        if resourceType is string {
-            return resourceType.toLowerAscii() == simpleName;
-        }
-        // Check for FHIR complex type by checking if the type name is a known complex type
-        return simpleName == "element" || simpleName == "backboneelement"
-            || simpleName == "resource" || simpleName == "domainresource";
     }
     return false;
 }
