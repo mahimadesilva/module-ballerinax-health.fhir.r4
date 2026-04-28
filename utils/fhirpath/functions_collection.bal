@@ -289,9 +289,6 @@ isolated function applyRepeatFunction(json[] collection, Expr[] params, json con
     boolean changed = true;
     // Track visited items to avoid infinite loops
     json[] visited = [...collection];
-    foreach json item in collection {
-        result.push(item);
-    }
 
     while changed {
         changed = false;

@@ -263,17 +263,30 @@ isolated function applyReplaceFunction(json[] collection, Expr[] params, json co
     json[] patResult = check evaluate(params[0], context, {scope: env.scope.childScope(), index: env?.index, total: env?.total});
     json[] repResult = check evaluate(params[1], context, {scope: env.scope.childScope(), index: env?.index, total: env?.total});
     if patResult.length() == 0 || repResult.length() == 0 {
-        return [val];
+        return [];
     }
     json pat = patResult[0];
     json rep = repResult[0];
     if pat is string && rep is string {
-        string result = val;
-        while result.includes(pat) {
-            int idx = result.indexOf(pat) ?: 0;
-            result = result.substring(0, idx) + rep + result.substring(idx + pat.length());
+        if pat == "" {
+            string buffer = rep;
+            foreach string ch in val {
+                buffer = buffer + ch + rep;
+            }
+            return [buffer];
         }
-        return [result];
+        string buffer = "";
+        int startIdx = 0;
+        while startIdx <= val.length() {
+            int? matchIdx = val.indexOf(pat, startIdx);
+            if matchIdx is () {
+                buffer += val.substring(startIdx);
+                break;
+            }
+            buffer += val.substring(startIdx, matchIdx) + rep;
+            startIdx = matchIdx + pat.length();
+        }
+        return [buffer];
     }
     return [val];
 }
@@ -346,11 +359,14 @@ isolated function applyReplaceMatchesFunction(json[] collection, Expr[] params, 
     json[] regexResult = check evaluate(params[0], context, {scope: env.scope.childScope(), index: env?.index, total: env?.total});
     json[] repResult = check evaluate(params[1], context, {scope: env.scope.childScope(), index: env?.index, total: env?.total});
     if regexResult.length() == 0 || repResult.length() == 0 {
-        return [val];
+        return [];
     }
     json regexVal = regexResult[0];
     json rep = repResult[0];
     if regexVal is string && rep is string {
+        if regexVal == "" {
+            return [val];
+        }
         string|error result = trap regex:replaceAll(val, regexVal, rep);
         if result is string {
             return [result];
@@ -451,12 +467,21 @@ isolated function applyEscapeUnescapeFunction(string funcName, json[] collection
 // ========================================
 
 isolated function strReplaceAll(string str, string needle, string replacement) returns string {
-    string result = str;
-    while result.includes(needle) {
-        int idx = result.indexOf(needle) ?: 0;
-        result = result.substring(0, idx) + replacement + result.substring(idx + needle.length());
+    if needle == "" {
+        return str;
     }
-    return result;
+    string buffer = "";
+    int startIdx = 0;
+    while startIdx <= str.length() {
+        int? matchIdx = str.indexOf(needle, startIdx);
+        if matchIdx is () {
+            buffer += str.substring(startIdx);
+            break;
+        }
+        buffer += str.substring(startIdx, matchIdx) + replacement;
+        startIdx = matchIdx + needle.length();
+    }
+    return buffer;
 }
 
 isolated function toInt(json val) returns int {
