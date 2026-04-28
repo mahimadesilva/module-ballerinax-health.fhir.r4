@@ -166,6 +166,66 @@ isolated function zeroPad(int n) returns string {
     return s.length() < 2 ? "0" + s : s;
 }
 
+isolated function zeroPad3(int n) returns string {
+    string s = n.toString();
+    while s.length() < 3 {
+        s = "0" + s;
+    }
+    return s;
+}
+
+isolated function addDaysToDateParts(int year, int month, int day, int n) returns [int, int, int] {
+    int y = year;
+    int m = month;
+    int d = day + n;
+    while d > lastDayOfMonth(y, m) {
+        d -= lastDayOfMonth(y, m);
+        m += 1;
+        if m > 12 {
+            m = 1;
+            y += 1;
+        }
+    }
+    while d < 1 {
+        m -= 1;
+        if m < 1 {
+            m = 12;
+            y -= 1;
+        }
+        d += lastDayOfMonth(y, m);
+    }
+    return [y, m, d];
+}
+
+isolated function addMonthsToDateParts(int year, int month, int day, int n) returns [int, int, int] {
+    int y = year;
+    int m = month + n;
+    while m > 12 {
+        m -= 12;
+        y += 1;
+    }
+    while m < 1 {
+        m += 12;
+        y -= 1;
+    }
+    int d = day;
+    int maxDay = lastDayOfMonth(y, m);
+    if d > maxDay {
+        d = maxDay;
+    }
+    return [y, m, d];
+}
+
+isolated function addYearsToDateParts(int year, int month, int day, int n) returns [int, int, int] {
+    int y = year + n;
+    int d = day;
+    int maxDay = lastDayOfMonth(y, month);
+    if d > maxDay {
+        d = maxDay;
+    }
+    return [y, month, d];
+}
+
 isolated function computeHalfUlp(decimal val, int precision) returns decimal {
     // half unit in the last place = 5 * 10^-(precision+1)
     decimal factor = 5d;

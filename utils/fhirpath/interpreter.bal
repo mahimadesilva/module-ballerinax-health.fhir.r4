@@ -556,7 +556,7 @@ isolated function applyComparisonOperator(json[] left, json[] right, string op) 
     return [];
 }
 
-isolated function applyAdditiveOperator(json[] left, json[] right, string op) returns json[] {
+isolated function applyAdditiveOperator(json[] left, json[] right, string op) returns FHIRPathInterpreterError|json[] {
     if left.length() == 0 || right.length() == 0 {
         return [];
     }
@@ -570,12 +570,306 @@ isolated function applyAdditiveOperator(json[] left, json[] right, string op) re
         if (l is int || l is decimal || l is float) && (r is int || r is decimal || r is float) {
             return numericBinaryOp(l, r, "+");
         }
+        if l is string && l.startsWith("@") && r is map<json> {
+            return addDateTimeQuantity(l, r, "+");
+        }
+        if l is string && l.startsWith("@") && (r is int || r is decimal || r is float) {
+            return error FHIRPathInterpreterError(
+                "Cannot add a plain number to a date/time without a unit",
+                token = {tokenType: IDENTIFIER, lexeme: "+", literal: (), position: 0});
+        }
     } else if op == "-" {
         if (l is int || l is decimal || l is float) && (r is int || r is decimal || r is float) {
             return numericBinaryOp(l, r, "-");
         }
+        if l is string && l.startsWith("@") && r is map<json> {
+            return addDateTimeQuantity(l, r, "-");
+        }
     }
     return [];
+}
+
+isolated function addDateTimeQuantity(string dateTimeStr, map<json> qty, string op) returns FHIRPathInterpreterError|json[] {
+    json qVal = qty["value"];
+    json qUnit = qty["unit"];
+    if !(qVal is decimal || qVal is int || qVal is float) || !(qUnit is string) {
+        return [];
+    }
+    decimal value = qVal is decimal ? qVal : (qVal is int ? <decimal>qVal : <decimal><float>qVal);
+    if op == "-" {
+        value = -value;
+    }
+    string unit = <string>qUnit;
+    string lower = unit.toLowerAscii();
+
+    string canonicalUnit;
+    if lower == "day" || lower == "days" || lower == "d" {
+        canonicalUnit = "day";
+    } else if lower == "week" || lower == "weeks" || lower == "wk" {
+        canonicalUnit = "week";
+    } else if lower == "month" || lower == "months" {
+        canonicalUnit = "month";
+    } else if lower == "year" || lower == "years" {
+        canonicalUnit = "year";
+    } else if lower == "hour" || lower == "hours" || lower == "h" {
+        canonicalUnit = "hour";
+    } else if lower == "minute" || lower == "minutes" || lower == "min" {
+        canonicalUnit = "minute";
+    } else if lower == "second" || lower == "seconds" || lower == "s" {
+        canonicalUnit = "second";
+    } else if lower == "millisecond" || lower == "milliseconds" || lower == "ms" {
+        canonicalUnit = "millisecond";
+    } else {
+        return error FHIRPathInterpreterError(
+            string `Unsupported unit for date/time arithmetic: '${unit}'`,
+            token = {tokenType: IDENTIFIER, lexeme: unit, literal: (), position: 0});
+    }
+
+    string s = dateTimeStr.substring(1);
+    if s.startsWith("T") {
+        return addQuantityToTimeOnly(s.substring(1), canonicalUnit, value);
+    }
+    int? tIdx = s.indexOf("T");
+    if tIdx is () {
+        return addQuantityToDateOnly(s, canonicalUnit, value);
+    }
+    return addQuantityToDateTimeStr(s, tIdx, canonicalUnit, value);
+}
+
+isolated function addQuantityToTimeOnly(string timeStr, string unit, decimal value) returns FHIRPathInterpreterError|json[] {
+    if unit == "day" || unit == "week" || unit == "month" || unit == "year" {
+        return error FHIRPathInterpreterError(
+            string `Cannot add ${unit}s to a time-only value`,
+            token = {tokenType: IDENTIFIER, lexeme: unit, literal: (), position: 0});
+    }
+
+    string[] colonParts = re`:`.split(timeStr);
+    if colonParts.length() < 2 {
+        return [];
+    }
+    int|error hourParse = int:fromString(colonParts[0]);
+    int|error minParse = int:fromString(colonParts[1]);
+    if hourParse is error || minParse is error {
+        return [];
+    }
+    int hour = hourParse;
+    int minute = minParse;
+    int second = 0;
+    int ms = 0;
+    boolean hasMs = false;
+    boolean hasSec = false;
+
+    if colonParts.length() >= 3 {
+        hasSec = true;
+        string secPart = colonParts[2];
+        int? dotIdx = secPart.indexOf(".");
+        if dotIdx is int {
+            hasMs = true;
+            int|error secParse = int:fromString(secPart.substring(0, dotIdx));
+            int|error msParse = int:fromString(secPart.substring(dotIdx + 1));
+            if secParse is error || msParse is error { return []; }
+            second = secParse;
+            ms = msParse;
+        } else {
+            int|error secParse = int:fromString(secPart);
+            if secParse is error { return []; }
+            second = secParse;
+        }
+    }
+
+    decimal msDecimal = 0;
+    if unit == "millisecond" { msDecimal = value; }
+    else if unit == "second" { msDecimal = value * 1000d; }
+    else if unit == "minute" { msDecimal = value * 60000d; }
+    else if unit == "hour" { msDecimal = value * 3600000d; }
+
+    int totalMs = ms + (second * 1000) + (minute * 60000) + (hour * 3600000) + <int>msDecimal;
+    int msInDay = 86400000;
+    totalMs = ((totalMs % msInDay) + msInDay) % msInDay;
+
+    int newHour = totalMs / 3600000;
+    int rem = totalMs % 3600000;
+    int newMinute = rem / 60000;
+    rem = rem % 60000;
+    int newSecond = rem / 1000;
+    int newMs = rem % 1000;
+
+    string result;
+    if hasMs {
+        result = string `@T${zeroPad(newHour)}:${zeroPad(newMinute)}:${zeroPad(newSecond)}.${zeroPad3(newMs)}`;
+    } else if hasSec {
+        result = string `@T${zeroPad(newHour)}:${zeroPad(newMinute)}:${zeroPad(newSecond)}`;
+    } else {
+        result = string `@T${zeroPad(newHour)}:${zeroPad(newMinute)}`;
+    }
+    return [result];
+}
+
+isolated function addQuantityToDateOnly(string dateStr, string unit, decimal value) returns FHIRPathInterpreterError|json[] {
+    if unit == "hour" || unit == "minute" || unit == "second" || unit == "millisecond" {
+        return [];
+    }
+    int i = <int>value;
+    int intVal = value < <decimal>i ? i - 1 : i;
+
+    if dateStr.length() == 4 {
+        int|error yearParse = int:fromString(dateStr);
+        if yearParse is error { return []; }
+        int year = yearParse;
+        if unit == "year" {
+            return ["@" + (year + intVal).toString()];
+        }
+        return [];
+    }
+
+    if dateStr.length() == 7 {
+        int|error yearParse = int:fromString(dateStr.substring(0, 4));
+        int|error monthParse = int:fromString(dateStr.substring(5, 7));
+        if yearParse is error || monthParse is error { return []; }
+        int year = yearParse;
+        int month = monthParse;
+        if unit == "year" {
+            return ["@" + (year + intVal).toString() + "-" + zeroPad(month)];
+        }
+        if unit == "month" {
+            [int, int, int] [y, m, _] = addMonthsToDateParts(year, month, 1, intVal);
+            return ["@" + y.toString() + "-" + zeroPad(m)];
+        }
+        return [];
+    }
+
+    if dateStr.length() < 10 {
+        return [];
+    }
+    int|error yearParse = int:fromString(dateStr.substring(0, 4));
+    int|error monthParse = int:fromString(dateStr.substring(5, 7));
+    int|error dayParse = int:fromString(dateStr.substring(8, 10));
+    if yearParse is error || monthParse is error || dayParse is error { return []; }
+    int year = yearParse;
+    int month = monthParse;
+    int day = dayParse;
+
+    int newYear;
+    int newMonth;
+    int newDay;
+    if unit == "day" {
+        [newYear, newMonth, newDay] = addDaysToDateParts(year, month, day, intVal);
+    } else if unit == "week" {
+        [newYear, newMonth, newDay] = addDaysToDateParts(year, month, day, intVal * 7);
+    } else if unit == "month" {
+        [newYear, newMonth, newDay] = addMonthsToDateParts(year, month, day, intVal);
+    } else if unit == "year" {
+        [newYear, newMonth, newDay] = addYearsToDateParts(year, month, day, intVal);
+    } else {
+        return [];
+    }
+    return ["@" + newYear.toString() + "-" + zeroPad(newMonth) + "-" + zeroPad(newDay)];
+}
+
+isolated function addQuantityToDateTimeStr(string s, int tIdx, string unit, decimal value) returns FHIRPathInterpreterError|json[] {
+    string datePart = s.substring(0, tIdx);
+    string afterT = s.substring(tIdx + 1);
+    [string, string] [timeNoTz, tzSuffix] = extractTzFromTime(afterT);
+
+    if datePart.length() < 10 {
+        return [];
+    }
+    int|error yearParse = int:fromString(datePart.substring(0, 4));
+    int|error monthParse = int:fromString(datePart.substring(5, 7));
+    int|error dayParse = int:fromString(datePart.substring(8, 10));
+    if yearParse is error || monthParse is error || dayParse is error { return []; }
+    int year = yearParse;
+    int month = monthParse;
+    int day = dayParse;
+
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+    int ms = 0;
+    boolean hasMs = false;
+
+    if timeNoTz.length() >= 5 {
+        int|error hParse = int:fromString(timeNoTz.substring(0, 2));
+        int|error minParse = int:fromString(timeNoTz.substring(3, 5));
+        if hParse is error || minParse is error { return []; }
+        hour = hParse;
+        minute = minParse;
+    }
+    if timeNoTz.length() >= 8 {
+        string secAndMs = timeNoTz.substring(6);
+        int? dotIdx = secAndMs.indexOf(".");
+        if dotIdx is int {
+            hasMs = true;
+            int|error secParse = int:fromString(secAndMs.substring(0, dotIdx));
+            int|error msParse = int:fromString(secAndMs.substring(dotIdx + 1));
+            if secParse is error || msParse is error { return []; }
+            second = secParse;
+            ms = msParse;
+        } else {
+            int|error secParse = int:fromString(secAndMs);
+            if secParse is error { return []; }
+            second = secParse;
+        }
+    }
+
+    int extraDays = 0;
+
+    if unit == "millisecond" || unit == "second" || unit == "minute" || unit == "hour" {
+        decimal msDecimal = 0;
+        if unit == "millisecond" { msDecimal = value; }
+        else if unit == "second" { msDecimal = value * 1000d; }
+        else if unit == "minute" { msDecimal = value * 60000d; }
+        else if unit == "hour" { msDecimal = value * 3600000d; }
+
+        int totalMs = ms + <int>msDecimal;
+        ms = ((totalMs % 1000) + 1000) % 1000;
+        int carryS = totalMs / 1000;
+
+        int totalS = second + carryS;
+        second = ((totalS % 60) + 60) % 60;
+        int carryMin = totalS / 60;
+
+        int totalMin = minute + carryMin;
+        minute = ((totalMin % 60) + 60) % 60;
+        int carryH = totalMin / 60;
+
+        int totalH = hour + carryH;
+        hour = ((totalH % 24) + 24) % 24;
+        extraDays = totalH / 24;
+    } else {
+        int i = <int>value;
+        int intVal = value < <decimal>i ? i - 1 : i;
+        int newYear;
+        int newMonth;
+        int newDay;
+        if unit == "day" {
+            [newYear, newMonth, newDay] = addDaysToDateParts(year, month, day, intVal);
+        } else if unit == "week" {
+            [newYear, newMonth, newDay] = addDaysToDateParts(year, month, day, intVal * 7);
+        } else if unit == "month" {
+            [newYear, newMonth, newDay] = addMonthsToDateParts(year, month, day, intVal);
+        } else if unit == "year" {
+            [newYear, newMonth, newDay] = addYearsToDateParts(year, month, day, intVal);
+        } else {
+            return [];
+        }
+        year = newYear;
+        month = newMonth;
+        day = newDay;
+    }
+
+    if extraDays != 0 {
+        [year, month, day] = addDaysToDateParts(year, month, day, extraDays);
+    }
+
+    string newDatePart = year.toString() + "-" + zeroPad(month) + "-" + zeroPad(day);
+    string newTimePart;
+    if hasMs {
+        newTimePart = zeroPad(hour) + ":" + zeroPad(minute) + ":" + zeroPad(second) + "." + zeroPad3(ms);
+    } else {
+        newTimePart = zeroPad(hour) + ":" + zeroPad(minute) + ":" + zeroPad(second);
+    }
+    return ["@" + newDatePart + "T" + newTimePart + tzSuffix];
 }
 
 isolated function applyConcatenateOperator(json[] left, json[] right) returns json[] {
