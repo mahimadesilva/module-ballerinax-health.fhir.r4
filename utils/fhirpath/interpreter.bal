@@ -29,15 +29,53 @@ type InterpreterError record {|
 # Error type for FHIRPath interpreter runtime errors.
 type FHIRPathInterpreterError distinct error<InterpreterError>;
 
+isolated class VariableScope {
+    private map<json & readonly> vars = {};
+    private map<boolean> localDefs = {};
+
+    isolated function define(string name, json value) returns boolean {
+        lock {
+            if self.localDefs.hasKey(name) { return false; }
+            self.vars[name] = value.cloneReadOnly();
+            self.localDefs[name] = true;
+        }
+        return true;
+    }
+
+    isolated function get(string name) returns (json & readonly)? {
+        lock { return self.vars[name]; }
+    }
+
+    isolated function hasKey(string name) returns boolean {
+        lock { return self.vars.hasKey(name); }
+    }
+
+    private isolated function inherit(map<json & readonly> & readonly snapshot) {
+        lock {
+            foreach var [k, v] in snapshot.entries() {
+                self.vars[k] = v;
+            }
+        }
+    }
+
+    isolated function childScope() returns VariableScope {
+        map<json & readonly> & readonly snapshot;
+        lock { snapshot = self.vars.cloneReadOnly(); }
+        VariableScope child = new VariableScope();
+        child.inherit(snapshot);
+        return child;
+    }
+}
+
 # Evaluation environment carrying $index, $total, and named variables.
 #
 # + index - Current iteration index ($index)
 # + total - Running aggregate total ($total)
-# + variables - Named variables defined via defineVariable()
+# + scope - Named variables defined via defineVariable()
 type FhirPathEnv record {|
     int index?;
     json total?;
-    map<json> variables?;
+    VariableScope scope;
 |};
 
 // ========================================
@@ -50,7 +88,13 @@ type FhirPathEnv record {|
 # + context - The JSON context object (typically a FHIR resource)
 # + return - A collection of JSON results, or a FhirpathInterpreterError if evaluation fails
 isolated function interpret(Expr expression, json context, map<json>? variables = ()) returns FHIRPathInterpreterError|json[] {
-    FhirPathEnv env = variables is map<json> ? {variables: variables} : {};
+    VariableScope scope = new VariableScope();
+    if variables is map<json> {
+        foreach var [k, v] in variables.entries() {
+            _ = scope.define(k, v);
+        }
+    }
+    FhirPathEnv env = {scope: scope};
     return evaluate(expression, context, env);
 }
 
@@ -123,9 +167,8 @@ isolated function visitIdentifierExpr(IdentifierExpr expr, json context, FhirPat
     }
 
     // Named variables defined by defineVariable()
-    map<json>? variables = env.variables;
-    if variables is map<json> && variables.hasKey(expr.name) {
-        return wrapInCollection(variables[expr.name]);
+    if env.scope.hasKey(expr.name) {
+        return wrapInCollection(env.scope.get(expr.name));
     }
 
     if context is () {
@@ -266,15 +309,11 @@ isolated function visitUnaryExpr(UnaryExpr expr, json context, FhirPathEnv env) 
 }
 
 isolated function visitExternalConstantExpr(ExternalConstantExpr expr, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
-    map<json>? variables = env.variables;
-    if variables is map<json> {
-        if variables.hasKey(expr.name) {
-            return wrapInCollection(variables[expr.name]);
-        }
-        FhirPathToken dummyToken = {tokenType: IDENTIFIER, lexeme: "%" + expr.name, literal: (), position: 0};
-        return error FHIRPathInterpreterError("Undefined constant: %" + expr.name, token = dummyToken);
+    if env.scope.hasKey(expr.name) {
+        return wrapInCollection(env.scope.get(expr.name));
     }
-    return [];
+    FhirPathToken dummyToken = {tokenType: IDENTIFIER, lexeme: "%" + expr.name, literal: (), position: 0};
+    return error FHIRPathInterpreterError("Undefined constant: %" + expr.name, token = dummyToken);
 }
 
 isolated function visitQuantityLiteralExpr(QuantityLiteralExpr expr) returns json[] {
@@ -333,6 +372,12 @@ isolated function visitBinaryExpr(BinaryExpr expr, json context, FhirPathEnv env
         }
         json[] rightResults = check evaluate(expr.right, context, env);
         return applyImpliesOperator(leftResults, rightResults);
+    }
+
+    if operatorType == PIPE {
+        json[] leftResults = check evaluate(expr.left, context, {scope: env.scope.childScope(), index: env?.index, total: env?.total});
+        json[] rightResults = check evaluate(expr.right, context, {scope: env.scope.childScope(), index: env?.index, total: env?.total});
+        return applyUnionOperator(leftResults, rightResults);
     }
 
     json[] leftResults = check evaluate(expr.left, context, env);
@@ -546,11 +591,58 @@ isolated function applyComparisonOperator(json[] left, json[] right, string op) 
                 if op == "<=" { return [lMin <= rMin]; }
                 if op == ">=" { return [lMin >= rMin]; }
             }
+            // Precision-aware comparison: incompatible precision → uncertain → empty
+            string kindL = fhirDateType(l);
+            string kindR = fhirDateType(r);
+            if kindL != kindR { return []; }
+            string normL = normalizeDateTimeNoTz(stripTimezone(l));
+            string normR = normalizeDateTimeNoTz(stripTimezone(r));
+            if normL.length() != normR.length() { return []; }
+            if op == "<" { return [normL < normR]; }
+            if op == ">" { return [normL > normR]; }
+            if op == "<=" { return [normL <= normR]; }
+            if op == ">=" { return [normL >= normR]; }
         }
         if op == "<" { return [l < r]; }
         if op == ">" { return [l > r]; }
         if op == "<=" { return [l <= r]; }
         if op == ">=" { return [l >= r]; }
+    }
+
+    // Quantity comparison (FHIR Quantity map vs map or map vs string literal)
+    if l is map<json> || r is map<json> {
+        map<json>? lq = l is map<json> ? <map<json>>l : (l is string ? parseQuantityFromString(<string>l) : ());
+        map<json>? rq = r is map<json> ? <map<json>>r : (r is string ? parseQuantityFromString(<string>r) : ());
+        if lq is map<json> && rq is map<json> {
+            json lv = lq["value"];
+            json rv = rq["value"];
+            if (lv is int || lv is decimal || lv is float) && (rv is int || rv is decimal || rv is float) {
+                string? lu = lq["unit"] is string ? <string>lq["unit"] : ();
+                string? lc = lq["code"] is string ? <string>lq["code"] : ();
+                string? ru = rq["unit"] is string ? <string>rq["unit"] : ();
+                string? rc = rq["code"] is string ? <string>rq["code"] : ();
+                if unitsMatch(lu, lc, ru, rc) {
+                    float lf = toFloat(lv);
+                    float rf = toFloat(rv);
+                    if op == "<" { return [lf < rf]; }
+                    if op == ">" { return [lf > rf]; }
+                    if op == "<=" { return [lf <= rf]; }
+                    if op == ">=" { return [lf >= rf]; }
+                }
+                string effectiveL = (lu ?: lc) ?: "";
+                string effectiveR = (ru ?: rc) ?: "";
+                string? normLU = quantityUnitCanonical(effectiveL);
+                string? normRU = quantityUnitCanonical(effectiveR);
+                if normLU is string && normRU is string && normLU == normRU {
+                    float lf = toFloat(lv);
+                    float rf = toFloat(rv);
+                    if op == "<" { return [lf < rf]; }
+                    if op == ">" { return [lf > rf]; }
+                    if op == "<=" { return [lf <= rf]; }
+                    if op == ">=" { return [lf >= rf]; }
+                }
+            }
+        }
     }
 
     return [];
@@ -993,6 +1085,7 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context, FhirPathEnv
     // ---- Aggregation ----
     if name == "count" { return applyCountFunction(targetResults, params); }
     if name == "distinct" { return applyDistinctFunction(targetResults, params); }
+    if name == "isDistinct" { return applyIsDistinctFunction(targetResults, params); }
     if name == "all" { return applyAllFunction(targetResults, params, context, env); }
     if name == "aggregate" { return applyAggregateFunction(targetResults, params, context, env); }
     if name == "sum" { return applySumFunction(targetResults, params); }
@@ -1114,7 +1207,7 @@ isolated function applyWhereFunction(json[] collection, Expr[] params, json cont
     int i = 0;
 
     foreach json item in collection {
-        FhirPathEnv itemEnv = {index: i, total: env?.total, variables: env?.variables};
+        FhirPathEnv itemEnv = {index: i, total: env?.total, scope: env.scope.childScope()};
         json[] conditionResult = check evaluate(conditionExpr, item, itemEnv);
         if isTruthy(conditionResult) {
             results.push(item);
@@ -1148,7 +1241,7 @@ isolated function applyExistsFunction(json[] collection, Expr[] params, json con
     Expr criteriaExpr = params[0];
     int i = 0;
     foreach json item in collection {
-        FhirPathEnv itemEnv = {index: i, total: env?.total, variables: env?.variables};
+        FhirPathEnv itemEnv = {index: i, total: env?.total, scope: env.scope.childScope()};
         json[] criteriaResult = check evaluate(criteriaExpr, item, itemEnv);
         if isTruthy(criteriaResult) {
             return [true];
@@ -1193,35 +1286,35 @@ isolated function applyDefineVariableFunction(json[] collection, Expr[] params, 
     if params.length() < 1 || params.length() > 2 {
         return fnError("defineVariable", "1 or 2 parameters", params.length());
     }
-    json[] nameResult = check evaluate(params[0], context, env);
-    if nameResult.length() == 0 {
-        return collection;
-    }
-    // The variable name is the first param evaluated as a string
-    // (or just the identifier name if it's an IdentifierExpr)
-    string varName = "";
+
+    json[] nameResult = check evaluate(params[0], context,
+        {scope: env.scope.childScope(), index: env?.index, total: env?.total});
+    if nameResult.length() == 0 { return collection; }
     json nameVal = nameResult[0];
-    if nameVal is string {
-        varName = nameVal;
-    } else {
-        Expr param0 = params[0];
-        if param0 is IdentifierExpr {
-            varName = param0.name;
-        }
+    if nameVal !is string || nameVal == "" { return collection; }
+    string varName = nameVal;
+
+    if varName == "context" || varName == "$this" || varName == "$index" || varName == "$total" {
+        FhirPathToken tok = {tokenType: IDENTIFIER, lexeme: varName, literal: (), position: 0};
+        return error FHIRPathInterpreterError("Cannot defineVariable with reserved name '" + varName + "'", token = tok);
     }
 
-    json varValue = context;
+    json varValue;
     if params.length() == 2 {
-        json[] valResult = check evaluate(params[1], context, env);
-        if valResult.length() > 0 {
-            varValue = valResult[0];
-        }
+        json valContext = collection.length() == 1 ? collection[0] : (collection.length() == 0 ? () : collection);
+        json[] valResult = check evaluate(params[1], valContext,
+            {scope: env.scope.childScope(), index: env?.index, total: env?.total});
+        varValue = valResult.length() > 0 ? valResult[0] : ();
+    } else {
+        varValue = context;
     }
 
-    // defineVariable returns the original collection unchanged; the variable
-    // is stored in the env — but since env is immutable in this design, we
-    // encode the variable into subsequent evaluation by returning the collection
-    // (defineVariable is a side-effect operation; full support requires env mutation)
+    boolean ok = env.scope.define(varName, varValue);
+    if !ok {
+        FhirPathToken tok = {tokenType: IDENTIFIER, lexeme: varName, literal: (), position: 0};
+        return error FHIRPathInterpreterError("Variable '" + varName + "' already defined in this scope", token = tok);
+    }
+
     return collection;
 }
 
@@ -1703,7 +1796,7 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
     Expr targetExpr = expr.target;
     string memberName = expr.member;
 
-    json[] targetResults = check evaluate(targetExpr, context, {});
+    json[] targetResults = check evaluate(targetExpr, context, {scope: new VariableScope()});
 
     if targetResults.length() > 0 {
         foreach json targetItem in targetResults {
@@ -1760,7 +1853,7 @@ isolated function visitMemberAccessExprSet(MemberAccessExpr expr, map<json> cont
 }
 
 isolated function visitIndexerExprSet(IndexerExpr expr, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
-    json[] indexResults = check evaluate(expr.index, context, {});
+    json[] indexResults = check evaluate(expr.index, context, {scope: new VariableScope()});
     if indexResults.length() != 1 {
         return error FHIRPathInterpreterError("Index must be a single value",
             token = {tokenType: EOF, lexeme: "", literal: (), position: 0});
@@ -1841,7 +1934,7 @@ isolated function setValueAtIndexedIdentifier(IdentifierExpr expr, int index, ma
 }
 
 isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
-    json[] targetResults = check evaluate(expr.target, context, {});
+    json[] targetResults = check evaluate(expr.target, context, {scope: new VariableScope()});
     string memberName = expr.member;
 
     if targetResults.length() == 0 {
@@ -1896,7 +1989,7 @@ isolated function setValueAtIndexedMemberAccess(MemberAccessExpr expr, int index
 }
 
 isolated function setValueAtNestedIndexer(IndexerExpr expr, int outerIndex, map<json> context, json newValue, boolean shouldRemove, ModificationFunction? modificationFunction) returns FHIRPathInterpreterError|map<json> {
-    json[] innerResults = check evaluate(expr, context, {});
+    json[] innerResults = check evaluate(expr, context, {scope: new VariableScope()});
 
     if innerResults.length() == 0 {
         if shouldRemove { return context; }

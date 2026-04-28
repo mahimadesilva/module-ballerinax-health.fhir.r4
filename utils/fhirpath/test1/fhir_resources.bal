@@ -1751,6 +1751,17 @@ json testSuiteConceptmapExample = {
                             "comment": "In the HL7 v3 AD, old is handled by the usablePeriod element, but you have to provide a time, there's no simple equivalent of flagging an address as old"
                         }
                     ]
+                },
+                {
+                    "code": "home",
+                    "display": "home (duplicate)",
+                    "target": [
+                        {
+                            "code": "H",
+                            "display": "home",
+                            "equivalence": "equivalent"
+                        }
+                    ]
                 }
             ],
             "unmapped": {

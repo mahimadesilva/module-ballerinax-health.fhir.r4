@@ -260,8 +260,8 @@ isolated function applyReplaceFunction(json[] collection, Expr[] params, json co
     if val !is string {
         return [];
     }
-    json[] patResult = check evaluate(params[0], context, env);
-    json[] repResult = check evaluate(params[1], context, env);
+    json[] patResult = check evaluate(params[0], context, {scope: env.scope.childScope(), index: env?.index, total: env?.total});
+    json[] repResult = check evaluate(params[1], context, {scope: env.scope.childScope(), index: env?.index, total: env?.total});
     if patResult.length() == 0 || repResult.length() == 0 {
         return [val];
     }
@@ -343,8 +343,8 @@ isolated function applyReplaceMatchesFunction(json[] collection, Expr[] params, 
     if val !is string {
         return [];
     }
-    json[] regexResult = check evaluate(params[0], context, env);
-    json[] repResult = check evaluate(params[1], context, env);
+    json[] regexResult = check evaluate(params[0], context, {scope: env.scope.childScope(), index: env?.index, total: env?.total});
+    json[] repResult = check evaluate(params[1], context, {scope: env.scope.childScope(), index: env?.index, total: env?.total});
     if regexResult.length() == 0 || repResult.length() == 0 {
         return [val];
     }

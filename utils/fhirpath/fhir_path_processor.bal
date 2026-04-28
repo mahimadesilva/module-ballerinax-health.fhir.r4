@@ -42,10 +42,6 @@ public isolated function getValuesFromFhirPath(json fhirResource, string fhirPat
         check validateFhirResource(fhirResource);
     }
 
-    if fhirResource !is map<json> {
-        return error FHIRPathResourceValidationError("FHIR resource must be a JSON object", fhirPath = fhirPathExpression);
-    }
-
     // Scan tokens
     FHIRPathScannerError|FhirPathToken[] scanResult = scanTokens(fhirPathExpression);
     if scanResult is FHIRPathScannerError {

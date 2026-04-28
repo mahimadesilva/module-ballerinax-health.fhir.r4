@@ -25,6 +25,22 @@ isolated function applyCountFunction(json[] collection, Expr[] params) returns F
     return [collection.length()];
 }
 
+isolated function applyIsDistinctFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
+    if params.length() != 0 {
+        return fnError("isDistinct", "0 parameters", params.length());
+    }
+    json[] seen = [];
+    foreach json item in collection {
+        foreach json existing in seen {
+            if isJsonEqual(item, existing) {
+                return [false];
+            }
+        }
+        seen.push(item);
+    }
+    return [true];
+}
+
 isolated function applyDistinctFunction(json[] collection, Expr[] params) returns FHIRPathInterpreterError|json[] {
     if params.length() != 0 {
         return fnError("distinct", "0 parameters", params.length());
@@ -192,7 +208,7 @@ isolated function applySelectFunction(json[] collection, Expr[] params, json con
     json[] results = [];
     int i = 0;
     foreach json item in collection {
-        FhirPathEnv itemEnv = {index: i, total: env?.total, variables: env?.variables};
+        FhirPathEnv itemEnv = {index: i, total: env?.total, scope: env.scope.childScope()};
         json[] itemResult = check evaluate(criteriaExpr, item, itemEnv);
         foreach json val in itemResult {
             results.push(val);
@@ -252,7 +268,7 @@ isolated function applyAllFunction(json[] collection, Expr[] params, json contex
     Expr criteriaExpr = params[0];
     int i = 0;
     foreach json item in collection {
-        FhirPathEnv itemEnv = {index: i, total: env?.total, variables: env?.variables};
+        FhirPathEnv itemEnv = {index: i, total: env?.total, scope: env.scope.childScope()};
         json[] criteriaResult = check evaluate(criteriaExpr, item, itemEnv);
         if criteriaResult.length() == 0 || !isTruthyValue(criteriaResult[0]) {
             return [false];
@@ -317,7 +333,7 @@ isolated function applyAggregateFunction(json[] collection, Expr[] params, json 
     }
     int i = 0;
     foreach json item in collection {
-        FhirPathEnv itemEnv = {index: i, total: total, variables: env.variables};
+        FhirPathEnv itemEnv = {index: i, total: total, scope: env.scope.childScope()};
         json[] aggResult = check evaluate(aggregatorExpr, item, itemEnv);
         if aggResult.length() > 0 {
             total = aggResult[0];
