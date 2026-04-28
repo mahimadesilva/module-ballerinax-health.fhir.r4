@@ -250,11 +250,20 @@ isolated function fhirPolymorphicAccess(map<json> obj, string fieldName) returns
     string prefix = fieldName;
     foreach string key in obj.keys() {
         if key.length() > prefix.length() && key.startsWith(prefix) {
-            string nextChar = key.substring(prefix.length(), prefix.length() + 1);
-            // The next character after fieldName must be uppercase (FHIR polymorphic convention)
+            string suffix = key.substring(prefix.length());
+            string nextChar = suffix.substring(0, 1);
             if nextChar >= "A" && nextChar <= "Z" {
                 json val = obj[key];
-                results.push(val);
+                if val is map<json> {
+                    map<json> annotated = {};
+                    foreach [string, json] [k, v] in val.entries() {
+                        annotated[k] = v;
+                    }
+                    annotated["__fhirType"] = suffix;
+                    results.push(annotated);
+                } else {
+                    results.push(val);
+                }
             }
         }
     }
@@ -344,15 +353,23 @@ isolated function visitBinaryExpr(BinaryExpr expr, json context, FhirPathEnv env
         json[] leftResults = check evaluate(expr.left, context, env);
         string typeName = extractTypeName(expr.right);
         if leftResults.length() == 0 { return [false]; }
-        return [matchesFhirType(leftResults[0], typeName, isSystemSourceExpr(expr.left))];
+        return [matchesFhirType(leftResults[0], typeName, isSystemSourceExpr(expr.left), getDeclaredFhirType(expr.left))];
     }
     if operatorType == AS {
         json[] leftResults = check evaluate(expr.left, context, env);
         string typeName = extractTypeName(expr.right);
-        boolean isLitSrc = isSystemSourceExpr(expr.left);
+        if !isKnownFhirType(typeName) {
+            return error FHIRPathInterpreterError(string `as: unknown type '${typeName}'`,
+                token = expr.operator);
+        }
+        if leftResults.length() > 1 {
+            return error FHIRPathInterpreterError("as: cannot cast a collection with more than 1 item",
+                token = expr.operator);
+        }
+        string? declaredType = getDeclaredFhirType(expr.left);
         json[] result = [];
         foreach json item in leftResults {
-            if matchesFhirType(item, typeName, isLitSrc) {
+            if exactFhirTypeMatch(item, typeName, declaredType) {
                 result.push(item);
             }
         }
@@ -1172,7 +1189,7 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context, FhirPathEnv
     if name == "convertsToTime" { return applyConvertsToTimeFunction(targetResults, params); }
     if name == "convertsToQuantity" { return applyConvertsToQuantityFunction(targetResults, params); }
     if name == "type" { return applyTypeFunction(targetResults, params, targetExpr); }
-    if name == "ofType" { return applyOfTypeFunction(targetResults, params, context, env); }
+    if name == "ofType" { return applyOfTypeFunction(targetResults, params, context, env, targetExpr); }
     if name == "is" {
         if params.length() != 1 {
             return fnError("is", "1 parameter", params.length());
@@ -1180,9 +1197,9 @@ isolated function visitFunctionExpr(FunctionExpr expr, json context, FhirPathEnv
         string isTypeName = extractTypeName(params[0]);
         if isTypeName.length() == 0 { return []; }
         if targetResults.length() == 0 { return [false]; }
-        return [matchesFhirType(targetResults[0], isTypeName, isSystemSourceExpr(targetExpr))];
+        return [matchesFhirType(targetResults[0], isTypeName, isSystemSourceExpr(targetExpr), getDeclaredFhirType(targetExpr))];
     }
-    if name == "as" { return applyAsTypeFunction(targetResults, params, context, env); }
+    if name == "as" { return applyAsTypeFunction(targetResults, params, context, env, targetExpr); }
 
     // ---- Logic ----
     if name == "iif" { return applyIifFunction(targetResults, params, context, env); }

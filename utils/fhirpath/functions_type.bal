@@ -20,6 +20,94 @@
 
 final readonly & string[] SYSTEM_PRIMITIVE_NAMES = ["Boolean", "Integer", "String", "Decimal", "Quantity", "Date", "DateTime", "Time", "Any"];
 
+final readonly & map<string> FHIR_FIELD_TYPES = {
+    "Patient.gender": "code",
+    "Patient.name": "HumanName",
+    "Questionnaire.url": "uri",
+    "ValueSet.version": "string",
+    "Observation.status": "code",
+    "Observation.valueQuantity": "Quantity"
+};
+
+isolated function getDeclaredFhirType(Expr? e) returns string? {
+    if e is MemberAccessExpr {
+        Expr tgt = e.target;
+        if tgt is IdentifierExpr {
+            return FHIR_FIELD_TYPES[tgt.name + "." + e.member];
+        }
+    }
+    return ();
+}
+
+isolated function fhirTypeIsA(string child, string parent) returns boolean {
+    string c = child.toLowerAscii();
+    string p = parent.toLowerAscii();
+    if c == p { return true; }
+    if p == "string" {
+        return c == "code" || c == "id" || c == "markdown" || c == "uri"
+            || c == "url" || c == "canonical" || c == "oid" || c == "uuid"
+            || c == "base64binary" || c == "date" || c == "datetime"
+            || c == "time" || c == "instant";
+    }
+    if p == "uri" {
+        return c == "url" || c == "canonical" || c == "oid" || c == "uuid";
+    }
+    if p == "quantity" {
+        return c == "age" || c == "duration";
+    }
+    if p == "element" || p == "resource" || p == "domainresource" { return true; }
+    return false;
+}
+
+isolated function isKnownFhirType(string typeName) returns boolean {
+    string name = typeName;
+    if name.includes(".") {
+        int? dot = name.lastIndexOf(".");
+        if dot is int { name = name.substring(dot + 1); }
+    }
+    if name.length() == 0 { return false; }
+    foreach int i in 0 ..< name.length() {
+        string ch = name.substring(i, i + 1);
+        if ch >= "0" && ch <= "9" { return false; }
+    }
+    return true;
+}
+
+isolated function exactFhirTypeMatch(json item, string typeName, string? declaredFhirType) returns boolean {
+    string simpleName = typeName.toLowerAscii();
+    if simpleName.includes(".") {
+        int? dot = simpleName.lastIndexOf(".");
+        if dot is int { simpleName = simpleName.substring(dot + 1); }
+    }
+    if item is map<json> {
+        json fhirTypeTag = item["__fhirType"];
+        if fhirTypeTag is string {
+            return fhirTypeTag.toLowerAscii() == simpleName;
+        }
+        json rt = item["resourceType"];
+        if rt is string { return rt.toLowerAscii() == simpleName; }
+        if declaredFhirType is string {
+            return declaredFhirType.toLowerAscii() == simpleName;
+        }
+        return simpleName == "element" || simpleName == "backboneelement"
+            || simpleName == "resource" || simpleName == "domainresource";
+    }
+    if item is string {
+        if declaredFhirType is string {
+            return declaredFhirType.toLowerAscii() == simpleName;
+        }
+        return simpleName == "string" || simpleName == "code" || simpleName == "id"
+            || simpleName == "markdown" || simpleName == "uri" || simpleName == "url"
+            || simpleName == "canonical" || simpleName == "oid" || simpleName == "uuid"
+            || simpleName == "date" || simpleName == "datetime" || simpleName == "instant"
+            || simpleName == "time" || simpleName == "base64binary";
+    }
+    if item is boolean { return simpleName == "boolean"; }
+    if item is int { return simpleName == "integer" || simpleName == "positiveint" || simpleName == "unsignedint"; }
+    if item is decimal || item is float { return simpleName == "decimal"; }
+    return false;
+}
+
 isolated function isSystemTypeName(string typeName) returns boolean {
     foreach string n in SYSTEM_PRIMITIVE_NAMES {
         if typeName == n { return true; }
@@ -379,17 +467,22 @@ isolated function applyToQuantityFunction(json[] collection, Expr[] params) retu
     return [];
 }
 
-isolated function applyOfTypeFunction(json[] collection, Expr[] params, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
+isolated function applyOfTypeFunction(json[] collection, Expr[] params, json context, FhirPathEnv env, Expr? targetExpr = ()) returns FHIRPathInterpreterError|json[] {
     if params.length() != 1 {
         return fnError("ofType", "1 parameter", params.length());
     }
     string typeName = extractTypeName(params[0]);
     if typeName.length() == 0 {
-        return [];
+        return fnError("ofType", "a type name", 0);
     }
+    if !isKnownFhirType(typeName) {
+        return error FHIRPathInterpreterError(string `ofType(): unknown type '${typeName}'`,
+            token = {tokenType: IDENTIFIER, lexeme: "ofType", literal: (), position: 0});
+    }
+    string? declaredType = getDeclaredFhirType(targetExpr);
     json[] result = [];
     foreach json item in collection {
-        if matchesFhirType(item, typeName) {
+        if exactFhirTypeMatch(item, typeName, declaredType) {
             result.push(item);
         }
     }
@@ -441,21 +534,26 @@ isolated function applyIsTypeFunction(json[] collection, Expr[] params, json con
     return [matchesFhirType(collection[0], typeName)];
 }
 
-isolated function applyAsTypeFunction(json[] collection, Expr[] params, json context, FhirPathEnv env) returns FHIRPathInterpreterError|json[] {
+isolated function applyAsTypeFunction(json[] collection, Expr[] params, json context, FhirPathEnv env, Expr? targetExpr = ()) returns FHIRPathInterpreterError|json[] {
     if params.length() != 1 {
         return fnError("as", "1 parameter", params.length());
     }
-    json[] typeResult = check evaluate(params[0], context, env);
-    if typeResult.length() == 0 {
-        return collection;
+    string typeName = extractTypeName(params[0]);
+    if typeName.length() == 0 {
+        return fnError("as", "a type name", 0);
     }
-    json typeVal = typeResult[0];
-    if typeVal !is string {
-        return collection;
+    if !isKnownFhirType(typeName) {
+        return error FHIRPathInterpreterError(string `as(): unknown type '${typeName}'`,
+            token = {tokenType: IDENTIFIER, lexeme: "as", literal: (), position: 0});
     }
+    if collection.length() > 1 {
+        return error FHIRPathInterpreterError("as(): cannot cast a collection with more than 1 item",
+            token = {tokenType: IDENTIFIER, lexeme: "as", literal: (), position: 0});
+    }
+    string? declaredType = getDeclaredFhirType(targetExpr);
     json[] result = [];
     foreach json item in collection {
-        if matchesFhirType(item, typeVal) {
+        if exactFhirTypeMatch(item, typeName, declaredType) {
             result.push(item);
         }
     }
@@ -466,7 +564,7 @@ isolated function applyAsTypeFunction(json[] collection, Expr[] params, json con
 // TYPE CHECKING HELPERS
 // ========================================
 
-isolated function matchesFhirType(json item, string typeName, boolean isLiteralSource = false) returns boolean {
+isolated function matchesFhirType(json item, string typeName, boolean isLiteralSource = false, string? declaredFhirType = ()) returns boolean {
     string lowerType = typeName.toLowerAscii();
     boolean isSystemQualified = lowerType.startsWith("system.");
     boolean isFhirQualified = lowerType.startsWith("fhir.");
@@ -484,6 +582,10 @@ isolated function matchesFhirType(json item, string typeName, boolean isLiteralS
 
     if item is map<json> {
         if isSystemContext { return false; }
+        json fhirTypeTag = item["__fhirType"];
+        if fhirTypeTag is string {
+            return fhirTypeIsA(fhirTypeTag, typeName);
+        }
         json resourceType = item["resourceType"];
         if resourceType is string {
             return resourceType.toLowerAscii() == simpleName;
@@ -507,6 +609,9 @@ isolated function matchesFhirType(json item, string typeName, boolean isLiteralS
     if item is int { return simpleName == "integer" || simpleName == "positiveint" || simpleName == "unsignedint"; }
     if item is decimal || item is float { return simpleName == "decimal"; }
     if item is string {
+        if declaredFhirType is string {
+            return fhirTypeIsA(declaredFhirType, typeName);
+        }
         return simpleName == "string" || simpleName == "code" || simpleName == "id"
             || simpleName == "markdown" || simpleName == "uri" || simpleName == "url"
             || simpleName == "canonical" || simpleName == "oid" || simpleName == "uuid"
