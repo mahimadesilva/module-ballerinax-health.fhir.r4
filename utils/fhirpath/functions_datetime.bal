@@ -128,7 +128,7 @@ isolated function applyHighBoundaryFunction(json[] collection, Expr[] params, js
         return [val];
     }
     if val is string {
-        return [dateTimeHighBoundary(val, precision)];
+        return [check dateTimeHighBoundary(val, precision)];
     }
     return [];
 }
@@ -306,7 +306,7 @@ isolated function expandDateLow(string datePart, int precision) returns string {
 }
 
 // Expand a date-only string to the appropriate high boundary at the given precision.
-isolated function expandDateHigh(string datePart, int precision) returns string {
+isolated function expandDateHigh(string datePart, int precision) returns string|FHIRPathInterpreterError {
     if datePart.length() == 4 {
         if precision <= 4 { return datePart; }
         if precision <= 6 { return datePart + "-12"; }
@@ -314,8 +314,15 @@ isolated function expandDateHigh(string datePart, int precision) returns string 
         return datePart + "-12-31T23:59:59.999-12:00";
     }
     if datePart.length() == 7 {
-        int year = checkpanic int:fromString(datePart.substring(0, 4));
-        int month = checkpanic int:fromString(datePart.substring(5, 7));
+        int|error yearResult = int:fromString(datePart.substring(0, 4));
+        int|error monthResult = int:fromString(datePart.substring(5, 7));
+        if yearResult is error || monthResult is error {
+            return error FHIRPathInterpreterError(
+                string `Invalid date format: ${datePart}`,
+                token = {tokenType: IDENTIFIER, lexeme: "highBoundary", literal: (), position: 0});
+        }
+        int year = yearResult;
+        int month = monthResult;
         int lastDay = lastDayOfMonth(year, month);
         if precision <= 6 { return datePart; }
         if precision <= 8 { return datePart + "-" + zeroPad(lastDay); }
@@ -361,7 +368,7 @@ isolated function dateTimeLowBoundary(string val, int precision) returns string 
     return prefix + datePart + "T" + expandTimeLow(extracted[0]) + tzToUse;
 }
 
-isolated function dateTimeHighBoundary(string val, int precision) returns string {
+isolated function dateTimeHighBoundary(string val, int precision) returns string|FHIRPathInterpreterError {
     boolean hasAt = val.startsWith("@");
     string s = hasAt ? val.substring(1) : val;
     string prefix = hasAt ? "@" : "";
@@ -379,7 +386,7 @@ isolated function dateTimeHighBoundary(string val, int precision) returns string
     int? tIdx = s.indexOf("T");
     if tIdx is () {
         // Date only
-        return prefix + expandDateHigh(s, precision);
+        return prefix + check expandDateHigh(s, precision);
     }
 
     // DateTime
