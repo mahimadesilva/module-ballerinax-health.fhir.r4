@@ -35,6 +35,7 @@ public type FHIRPathError FHIRPathScannerError|FHIRPathParserError|FHIRPathInter
 # + fhirResource - Input FHIR resource
 # + fhirPathExpression - fhirpath expression to get values from
 # + validateInputFHIRResource - whether to validate the input FHIR resource (default = false)
+# + variables - optional map of variable bindings available in the expression
 # + return - list of results of the fhirpath expression or FHIRPathError (scanner/parser/interpreter/validation errors)
 public isolated function getValuesFromFhirPath(json fhirResource, string fhirPathExpression, boolean validateInputFHIRResource = inputFHIRResourceValidation, map<json>? variables = ()) returns json[]|FHIRPathError {
     // Validate input FHIR resource and throw error if invalid

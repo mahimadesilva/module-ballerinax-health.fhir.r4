@@ -86,6 +86,7 @@ type FhirPathEnv record {|
 #
 # + expression - The parsed FHIRPath expression (AST)
 # + context - The JSON context object (typically a FHIR resource)
+# + variables - optional map of variable bindings available in the expression
 # + return - A collection of JSON results, or a FhirpathInterpreterError if evaluation fails
 isolated function interpret(Expr expression, json context, map<json>? variables = ()) returns FHIRPathInterpreterError|json[] {
     VariableScope scope = new VariableScope();
@@ -429,7 +430,6 @@ isolated function visitBinaryExpr(BinaryExpr expr, json context, FhirPathEnv env
         SLASH => { return applyMultiplicativeOperator(leftResults, rightResults, "/"); }
         DIV => { return applyMultiplicativeOperator(leftResults, rightResults, "div"); }
         MOD => { return applyMultiplicativeOperator(leftResults, rightResults, "mod"); }
-        PIPE => { return applyUnionOperator(leftResults, rightResults); }
         IN => { return applyInOperator(leftResults, rightResults); }
         CONTAINS => { return applyInOperator(rightResults, leftResults); }
     }
@@ -439,6 +439,9 @@ isolated function visitBinaryExpr(BinaryExpr expr, json context, FhirPathEnv env
 }
 
 # Extracts the type name string from a type expression right-hand side.
+#
+# + expr - The expression node representing the type name
+# + return - The fully-qualified type name string, or empty string if unresolvable
 isolated function extractTypeName(Expr expr) returns string {
     if expr is IdentifierExpr {
         return expr.name;
@@ -1305,9 +1308,8 @@ isolated function applySumFunction(json[] collection, Expr[] params) returns FHI
     }
     decimal sum = 0d;
     boolean hasDecimal = false;
-    boolean hasInt = false;
     foreach json item in collection {
-        if item is int { sum += <decimal>item; hasInt = true; }
+        if item is int { sum += <decimal>item; }
         else if item is decimal { sum += item; hasDecimal = true; }
         else if item is float { sum += <decimal>item; hasDecimal = true; }
     }

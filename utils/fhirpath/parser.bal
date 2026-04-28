@@ -653,7 +653,6 @@ isolated function parsePrimary(ParserState state) returns FHIRPathParserError|Pa
         if unitStr is string {
             // Consume the unit token(s)
             ParseResult unitConsumeResult = check consumeUnit(newState);
-            Expr? unitResult = unitConsumeResult[0];
             newState = unitConsumeResult[1];
             return [createQuantityLiteralExpr(numVal, unitStr), newState];
         }
