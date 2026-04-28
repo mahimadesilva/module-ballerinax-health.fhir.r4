@@ -10,7 +10,8 @@ function runStandardFhirPathTestSuite() returns error? {
     TestReport report = check response.cloneWithType(TestReport);
 
     log:printInfo("FHIRPath test run complete",
-            total = report.total, passed = report.passed, failed = report.failed);
+            total = report.total, passed = report.passed,
+            failed = report.failed, skipped = report.skipped);
 
     foreach string failedName in report.failedNames {
         TestResult[] matching = from TestResult r in report.results

@@ -5,6 +5,7 @@ type FHIRPathTestCase record {|
     string resourceKey;
     json[] expected;
     boolean expectError;
+    boolean disabled = false;
 |};
 
 type TestResult record {|
@@ -20,6 +21,7 @@ type TestReport record {|
     int total;
     int passed;
     int failed;
+    int skipped;
     string[] failedNames;
     TestResult[] results;
 |};

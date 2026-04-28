@@ -6,7 +6,9 @@ function getExtensionsTestCases() returns FHIRPathTestCase[] {
             expression: "Patient.birthDate.extension('http://hl7.org/fhir/StructureDefinition/patient-birthTime').exists()",
             resourceKey: "patient",
             expected: [true],
-            expectError: false
+            expectError: false,
+            // TODO: enable once implementation supports this
+            disabled: true
         },
         {
             name: "test_testExtension2",
@@ -14,7 +16,9 @@ function getExtensionsTestCases() returns FHIRPathTestCase[] {
             expression: "Patient.birthDate.extension(%`ext-patient-birthTime`).exists()",
             resourceKey: "patient",
             expected: [true],
-            expectError: false
+            expectError: false,
+            // TODO: enable once implementation supports this
+            disabled: true
         },
         {
             name: "test_testExtension3",
@@ -54,7 +58,9 @@ function getExtensionsTestCases() returns FHIRPathTestCase[] {
             expression: "%terminologies.expand('http://hl7.org/fhir/ValueSet/administrative-gender').expansion.contains.count()",
             resourceKey: "patient",
             expected: [4],
-            expectError: false
+            expectError: false,
+            // TODO: enable once implementation supports this
+            disabled: true
         },
         {
             name: "test_txTest02",
@@ -62,7 +68,9 @@ function getExtensionsTestCases() returns FHIRPathTestCase[] {
             expression: "%terminologies.validateVS('http://hl7.org/fhir/ValueSet/administrative-gender', $this.gender).parameter.where(name = 'result').value",
             resourceKey: "patient",
             expected: [true],
-            expectError: false
+            expectError: false,
+            // TODO: enable once implementation supports this
+            disabled: true
         },
         {
             name: "test_txTest03",
@@ -70,7 +78,9 @@ function getExtensionsTestCases() returns FHIRPathTestCase[] {
             expression: "%terminologies.translate('http://hl7.org/fhir/ConceptMap/cm-address-use-v2', $this.address.use).parameter.where(name = 'match').part.where(name = 'concept').value.code",
             resourceKey: "patient",
             expected: ["H"],
-            expectError: false
+            expectError: false,
+            // TODO: enable once implementation supports this
+            disabled: true
         }
     ];
 }

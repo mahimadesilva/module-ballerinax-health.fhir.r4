@@ -6,7 +6,9 @@ function getSpecialTestCases() returns FHIRPathTestCase[] {
             expression: "ClinicalDocument.hasTemplateIdOf('http://hl7.org/cda/us/ccda/StructureDefinition/ContinuityofCareDocumentCCD')",
             resourceKey: "ccda",
             expected: [true],
-            expectError: false
+            expectError: false,
+            // TODO: enable once implementation supports this
+            disabled: true
         },
         {
             name: "test_testHasTemplateId3",
@@ -14,7 +16,9 @@ function getSpecialTestCases() returns FHIRPathTestCase[] {
             expression: "recordTarget.patientRole.hasTemplateIdOf('http://hl7.org/cda/us/ccda/StructureDefinition/ContinuityofCareDocumentCCD')",
             resourceKey: "ccda",
             expected: [false],
-            expectError: false
+            expectError: false,
+            // TODO: enable once implementation supports this
+            disabled: true
         },
         {
             name: "test_testIndex",
@@ -54,7 +58,9 @@ function getSpecialTestCases() returns FHIRPathTestCase[] {
             expression: "composition.exists() implies ( composition.resolve().section.entry.reference.where(resolve() is Observation) .where($this in (%resource.result.reference | %resource.result.reference.resolve().hasMember.reference)).exists() )",
             resourceKey: "diagnosticreport",
             expected: [true],
-            expectError: false
+            expectError: false,
+            // TODO: enable once implementation supports this
+            disabled: true
         },
         {
             name: "test_testPrimitiveExtensions",

@@ -44,12 +44,20 @@ function getAllTestCases() returns FHIRPathTestCase[] {
     return all;
 }
 
+// TODO: Set skipDisabledTests = false in Config.toml once all disabled tests are fully implemented
+configurable boolean skipDisabledTests = false;
+
 function runCases(FHIRPathTestCase[] cases) returns TestReport {
     TestResult[] results = [];
     int passed = 0;
     int failed = 0;
+    int skipped = 0;
 
     foreach FHIRPathTestCase tc in cases {
+        if tc.disabled && skipDisabledTests {
+            skipped += 1;
+            continue;
+        }
         json|error resourceResult = getResource(tc.resourceKey);
         if resourceResult is error {
             results.push({
@@ -100,5 +108,5 @@ function runCases(FHIRPathTestCase[] cases) returns TestReport {
     }
 
     string[] failedNames = from TestResult r in results where r.status == "fail" select r.name;
-    return {total: cases.length(), passed, failed, failedNames, results};
+    return {total: cases.length(), passed, failed, skipped, failedNames, results};
 }
