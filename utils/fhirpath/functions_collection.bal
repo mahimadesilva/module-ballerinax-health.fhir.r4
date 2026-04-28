@@ -299,8 +299,11 @@ isolated function applyRepeatFunction(json[] collection, Expr[] params, json con
     while changed {
         changed = false;
         json[] nextBatch = [];
+        int idx = 0;
         foreach json item in current {
-            json[] itemResult = check evaluate(criteriaExpr, item, env);
+            FhirPathEnv itemEnv = {index: idx, total: env?.total, scope: env.scope.childScope()};
+            json[] itemResult = check evaluate(criteriaExpr, item, itemEnv);
+            idx += 1;
             foreach json newItem in itemResult {
                 boolean alreadyVisited = false;
                 foreach json v in visited {
@@ -396,11 +399,16 @@ isolated function applyNotFunction(json[] collection, Expr[] params) returns FHI
     if collection.length() == 0 {
         return [];
     }
+    if collection.length() > 1 {
+        return error FHIRPathInterpreterError("not() requires at most one item in the collection",
+            token = {tokenType: IDENTIFIER, lexeme: "not", literal: (), position: 0});
+    }
     json val = collection[0];
     if val is boolean {
         return [!val];
     }
-    return [];
+    return error FHIRPathInterpreterError("not() requires a boolean value",
+        token = {tokenType: IDENTIFIER, lexeme: "not", literal: (), position: 0});
 }
 
 isolated function applyChildrenFunction(json[] collection, Expr[] params, json context) returns FHIRPathInterpreterError|json[] {
