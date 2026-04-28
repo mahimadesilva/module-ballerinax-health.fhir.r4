@@ -169,6 +169,9 @@ isolated function applyPowerFunction(json[] collection, Expr[] params, json cont
     float base = toFloat(collection[0]);
     float exp = toFloat(expResult[0]);
     float result = float:pow(base, exp);
+    if result.isNaN() || result.isInfinite() {
+        return [];
+    }
     if result == float:floor(result) && exp >= 0.0 {
         return [<int>result];
     }

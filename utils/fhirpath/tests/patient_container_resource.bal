@@ -1,0 +1,21 @@
+function getPatientContainerResource() returns json {
+    return {
+    "resourceType": "Patient",
+    "id": "example-container",
+    "contained": [
+        {
+            "resourceType": "Organization",
+            "id": "1"
+        }
+    ],
+    "name": [
+        {
+            "text": "some-name"
+        }
+    ],
+    "managingOrganization": {
+        "reference": "1",
+        "display": "Gastroenterology"
+    }
+};
+}

@@ -129,6 +129,10 @@ dependencies = [
 	{org = "ballerina", name = "time"},
 	{org = "ballerina", name = "url"}
 ]
+modules = [
+	{org = "ballerina", packageName = "http", moduleName = "http"},
+	{org = "ballerina", packageName = "http", moduleName = "http.httpscerr"}
+]
 
 [[package]]
 org = "ballerina"
@@ -476,6 +480,7 @@ org = "ballerinax"
 name = "health.fhir.r4utils.fhirpath"
 version = "5.0.1"
 dependencies = [
+	{org = "ballerina", name = "http"},
 	{org = "ballerina", name = "lang.array"},
 	{org = "ballerina", name = "log"},
 	{org = "ballerina", name = "regex"},

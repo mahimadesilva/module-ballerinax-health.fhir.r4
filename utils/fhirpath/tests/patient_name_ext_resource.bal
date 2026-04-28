@@ -1,0 +1,30 @@
+function getPatientNameExtResource() returns json {
+    return {
+    "resourceType": "Patient",
+    "id": "example",
+    "active": true,
+    "name": [
+        {
+            "use": "maiden",
+            "family": "Windsor",
+            "given": [
+                null,
+                "James"
+            ],
+            "_given": [
+                {
+                    "extension": [
+                        {
+                            "url": "https://example.org/syllable-count",
+                            "valueString": "five"
+                        }
+                    ]
+                }
+            ],
+            "period": {
+                "end": "2002"
+            }
+        }
+    ]
+};
+}
