@@ -63,10 +63,8 @@ function getMiscTestCases() returns FHIRPathTestCase[] {
             group: "comments",
             expression: "2 // comment / 2",
             resourceKey: "patient",
-            expected: [1],
-            expectError: false,
-            // TODO: enable once implementation supports this
-            disabled: true
+            expected: [2],
+            expectError: false
         },
         {
             name: "test_testComment7",

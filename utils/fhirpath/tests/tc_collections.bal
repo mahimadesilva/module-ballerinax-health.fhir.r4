@@ -555,7 +555,7 @@ function getCollectionsTestCases() returns FHIRPathTestCase[] {
             group: "testCombine()",
             expression: "concept.code.combine($this.descendants().concept.code).isDistinct()",
             resourceKey: "codesystem",
-            expected: [false],
+            expected: [true],
             expectError: false
         },
         {

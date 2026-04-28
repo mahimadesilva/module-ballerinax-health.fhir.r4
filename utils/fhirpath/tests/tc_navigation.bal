@@ -99,16 +99,6 @@ function getNavigationTestCases() returns FHIRPathTestCase[] {
             expectError: false
         },
         {
-            name: "test_testPolymorphicsB",
-            group: "polymorphics",
-            expression: "Observation.valueQuantity.exists()",
-            resourceKey: "observation",
-            expected: [],
-            expectError: true,
-            // TODO: enable once implementation supports this
-            disabled: true
-        },
-        {
             name: "test_testPolymorphicsC",
             group: "polymorphics",
             expression: "Observation.valueQuantity.exists()",
@@ -317,26 +307,6 @@ function getNavigationTestCases() returns FHIRPathTestCase[] {
             resourceKey: "patient",
             expected: [],
             expectError: true
-        },
-        {
-            name: "test_testExtractBirthDate",
-            group: "testMiscellaneousAccessorTests",
-            expression: "birthDate",
-            resourceKey: "patient",
-            expected: ["@1974-12-25"],
-            expectError: false,
-            // TODO: enable once implementation supports this
-            disabled: true
-        },
-        {
-            name: "test_testPatientHasBirthDate",
-            group: "testMiscellaneousAccessorTests",
-            expression: "birthDate",
-            resourceKey: "patient",
-            expected: [true],
-            expectError: false,
-            // TODO: enable once implementation supports this
-            disabled: true
         },
         {
             name: "test_testPatientTelecomTypes",
