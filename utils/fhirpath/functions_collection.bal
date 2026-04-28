@@ -227,12 +227,18 @@ isolated function applySortFunction(json[] collection, Expr[] params, json conte
     if params.length() == 0 {
         return sortCollection(collection);
     }
+    if params.length() > 1 {
+        return fnError("sort", "0 or 1 parameter", params.length());
+    }
     // With criteria: evaluate criteria for each item and sort by result
     Expr criteria = params[0];
     json[][] keyedItems = [];
+    int idx = 0;
     foreach json item in collection {
-        json[] keyResult = check evaluate(criteria, item, env);
+        FhirPathEnv itemEnv = {index: idx, total: env?.total, scope: env.scope.childScope()};
+        json[] keyResult = check evaluate(criteria, item, itemEnv);
         keyedItems.push([item, keyResult.length() > 0 ? keyResult[0] : ()]);
+        idx += 1;
     }
     // Simple insertion sort by key
     int n = keyedItems.length();
@@ -494,20 +500,25 @@ isolated function sortCollection(json[] collection) returns json[] {
     return result;
 }
 
+isolated function jsonTypeOrder(json v) returns int {
+    if v is () { return 0; }
+    if v is boolean { return 1; }
+    if v is int || v is decimal || v is float { return 2; }
+    if v is string { return 3; }
+    if v is json[] { return 4; }
+    return 5; // map<json>
+}
+
 isolated function compareJsonValues(json a, json b) returns int {
-    if a is () && b is () {
-        return 0;
+    int ta = jsonTypeOrder(a);
+    int tb = jsonTypeOrder(b);
+    if ta != tb {
+        return ta < tb ? -1 : 1;
     }
-    if a is () {
-        return -1;
-    }
-    if b is () {
-        return 1;
-    }
-    if a is string && b is string {
-        if a < b { return -1; }
-        if a > b { return 1; }
-        return 0;
+    if a is () { return 0; }
+    if a is boolean && b is boolean {
+        if a == b { return 0; }
+        return a ? 1 : -1;
     }
     if (a is int || a is decimal || a is float) && (b is int || b is decimal || b is float) {
         float fa = toFloat(a);
@@ -516,11 +527,38 @@ isolated function compareJsonValues(json a, json b) returns int {
         if fa > fb { return 1; }
         return 0;
     }
-    if a is boolean && b is boolean {
-        if a == b { return 0; }
-        return a ? 1 : -1;
+    if a is string && b is string {
+        if a < b { return -1; }
+        if a > b { return 1; }
+        return 0;
     }
-    return a.toString() < b.toString() ? -1 : 1;
+    if a is json[] && b is json[] {
+        int lenCmp = a.length() < b.length() ? a.length() : b.length();
+        foreach int i in 0 ..< lenCmp {
+            int c = compareJsonValues(a[i], b[i]);
+            if c != 0 { return c; }
+        }
+        if a.length() < b.length() { return -1; }
+        if a.length() > b.length() { return 1; }
+        return 0;
+    }
+    if a is map<json> && b is map<json> {
+        string[] keysA = from string k in a.keys() order by k select k;
+        string[] keysB = from string k in b.keys() order by k select k;
+        int lenCmp = keysA.length() < keysB.length() ? keysA.length() : keysB.length();
+        foreach int i in 0 ..< lenCmp {
+            if keysA[i] < keysB[i] { return -1; }
+            if keysA[i] > keysB[i] { return 1; }
+            json valA = a[keysA[i]] ?: ();
+            json valB = b[keysB[i]] ?: ();
+            int c = compareJsonValues(valA, valB);
+            if c != 0 { return c; }
+        }
+        if keysA.length() < keysB.length() { return -1; }
+        if keysA.length() > keysB.length() { return 1; }
+        return 0;
+    }
+    return 0;
 }
 
 isolated function isJsonEqual(json a, json b) returns boolean {
@@ -531,7 +569,26 @@ isolated function isJsonEqual(json a, json b) returns boolean {
     if (a is int || a is decimal || a is float) && (b is int || b is decimal || b is float) {
         return toFloat(a) == toFloat(b);
     }
-    return a.toString() == b.toString();
+    if a is json[] && b is json[] {
+        if a.length() != b.length() { return false; }
+        foreach int i in 0 ..< a.length() {
+            if !isJsonEqual(a[i], b[i]) { return false; }
+        }
+        return true;
+    }
+    if a is map<json> && b is map<json> {
+        string[] keysA = from string k in a.keys() order by k select k;
+        string[] keysB = from string k in b.keys() order by k select k;
+        if keysA.length() != keysB.length() { return false; }
+        foreach int i in 0 ..< keysA.length() {
+            if keysA[i] != keysB[i] { return false; }
+            json valA = a[keysA[i]] ?: ();
+            json valB = b[keysA[i]] ?: ();
+            if !isJsonEqual(valA, valB) { return false; }
+        }
+        return true;
+    }
+    return false;
 }
 
 isolated function isTruthyValue(json val) returns boolean {
