@@ -43,12 +43,10 @@ function getMiscTestCases() returns FHIRPathTestCase[] {
         {
             name: "test_testComment2",
             group: "comments",
-            expression: "// This is a multi line comment using // that // should not fail during parsing 2+2",
+            expression: "// This is a multi line comment using // that\r\n  // should not fail during parsing\r\n  2+2",
             resourceKey: "patient",
             expected: [4],
-            expectError: false,
-            // TODO: enable once implementation supports this
-            disabled: true
+            expectError: false
         },
         {
             name: "test_testComment3",
