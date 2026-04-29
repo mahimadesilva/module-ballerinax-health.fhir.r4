@@ -379,3 +379,59 @@ public function main() {
     }
 }
 ```
+
+## Supported Functions
+
+### Existence & Boolean
+
+| | | | | |
+|---|---|---|---|---|
+| `empty` | `exists` | `not` | `hasValue` | `all` |
+| `isDistinct` | `subsetOf` | `supersetOf` | | |
+
+### Filtering & Projection
+
+| | | | | |
+|---|---|---|---|---|
+| `where` | `select` | `repeat` | `ofType` | |
+
+### Collection
+
+| | | | | |
+|---|---|---|---|---|
+| `first` | `last` | `tail` | `skip` | `take` |
+| `single` | `count` | `distinct` | `combine` | `union` |
+| `intersect` | `exclude` | `children` | `descendants` | `aggregate` |
+| `sort` | `sum` | | | |
+
+### String
+
+| | | | | |
+|---|---|---|---|---|
+| `length` | `trim` | `toChars` | `split` | `join` |
+| `upper` | `lower` | `startsWith` | `endsWith` | `contains` |
+| `indexOf` | `substring` | `replace` | `matches` | `matchesFull` |
+| `replaceMatches` | `encode` | `decode` | `escape` | `unescape` |
+
+### Math
+
+| | | | | |
+|---|---|---|---|---|
+| `abs` | `ceiling` | `floor` | `truncate` | `round` |
+| `sqrt` | `power` | `exp` | `ln` | `log` |
+
+### Type & Conversion
+
+| | | | | |
+|---|---|---|---|---|
+| `type` | `is` | `as` | `toInteger` |
+| `toDecimal` | `toString` | `toBoolean` | `toDate` | `toDateTime` |
+| `toTime` | `toQuantity` | `convertsToInteger` | `convertsToDecimal` | `convertsToString` |
+| `convertsToBoolean` | `convertsToDate` | `convertsToDateTime` | `convertsToTime` | `convertsToQuantity` |
+
+### Date & Time
+
+| | | | | |
+|---|---|---|---|---|
+| `today` | `now` | `precision` |
+
